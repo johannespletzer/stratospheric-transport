@@ -1,24 +1,78 @@
 import torch
 
 
-def create_train_val_loaders(X, Gamma, W, tau_R=None, batch_size=256, val_split=0.2, device='cuda'):
+def create_train_val_loaders(
+    X,
+    Gamma,
+    W,
+    tau_R=None,
+    batch_size=256,
+    val_split=0.2,
+    device='cuda'
+    ):
+    """
+    Splits data into training and validation sets and returns DataLoaders
+    with (X, Gamma, W, tau_R) tuples for PINN training.
 
+    Parameters
+    ----------
+    X : np.ndarray
+        Input features of shape [N, D] (e.g., lat, alt, time, source, Gamma_EI).
+
+    Gamma : np.ndarray
+        Effective irreversibility (Γ_EI) values, shape [N,].
+
+    W : np.ndarray
+        Weights for the physics loss (e.g., 1 / std²), shape [N,].
+
+    tau_R : np.ndarray or None, optional
+        Supervised residence time target values τ_R, shape [N,]. If None,
+        NaNs will be filled for compatibility with the model interface.
+
+    batch_size : int, default=256
+        Batch size for the DataLoaders.
+
+    val_split : float, default=0.2
+        Fraction of the dataset to use for validation.
+
+    device : str, default='cuda'
+        Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
+
+    Returns
+    -------
+    train_loader : DataLoader
+        PyTorch DataLoader for training data.
+
+    val_loader : DataLoader
+        PyTorch DataLoader for validation data.
+    """
     from sklearn.model_selection import train_test_split
     from torch.utils.data import DataLoader, TensorDataset
+    import numpy as np
 
-    X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
-        X, Gamma, W, tau_R, test_size=val_split, random_state=42
-    )
+    if tau_R is not None:
+        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
+            X, Gamma, W, tau_R, test_size=val_split, random_state=42
+        )
+    else:
+        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val = train_test_split(
+            X, Gamma, W, test_size=val_split, random_state=42
+        )
+        tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
+        tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
 
     def make_loader(X, Gamma, W, tau):
-        X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
-        Gamma_tensor = torch.tensor(Gamma, dtype=torch.float32).unsqueeze(1).to(device)
-        W_tensor = torch.tensor(W, dtype=torch.float32).unsqueeze(1).to(device)
-        tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device) if tau is not None else None
+        X_tensor = torch.tensor(X, dtype=torch.float32, device=device)
+        Gamma_tensor = torch.tensor(Gamma, dtype=torch.float32, device=device)
+        W_tensor = torch.tensor(W, dtype=torch.float32, device=device)
+        tau_tensor = torch.tensor(tau, dtype=torch.float32, device=device)
+
         dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
         return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    return make_loader(X_train, Gamma_train, W_train, tau_train), make_loader(X_val, Gamma_val, W_val, tau_val)
+    return make_loader(X_train, Gamma_train, W_train, tau_train), \
+           make_loader(X_val, Gamma_val, W_val, tau_val)
+
 
 def scale_variables(X_obs):
 
@@ -80,6 +134,8 @@ def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
                 val_loss += loss.item()
 
         val_losses.append(val_loss)
+
+        assert all(t.device == Xb.device for t in (Gb, Wb)), "Device mismatch!"
 
         if epoch % 10 == 0:
             print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "

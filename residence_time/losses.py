@@ -48,7 +48,7 @@ def pinn_loss(
     tau_pred, D_pred = model(X)
 
     Gamma_EI = Gamma_EI.clamp(min=1e-4)
-    D_clamped = D_pred.clamp(max=10.0)
+    D_clamped = D_pred.clamp(max=100.0)
 
     # Physics-based τ_R from mean age of air and diffusivity
     tau_phys = 2 * D_clamped**2 / Gamma_EI

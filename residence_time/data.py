@@ -96,7 +96,7 @@ def load_insitu_dataset(filepath):
     return X, Gamma, W
 
 
-def load_satellite_dataset(filepath):
+def load_satellite_dataset(filepath, time_range=None):
     """
     Loads satellite-based age-of-air observations from NetCDF (e.g. ACE-FTS or MIPAS).
 
@@ -109,6 +109,12 @@ def load_satellite_dataset(filepath):
     - W: [N,] inverse variance weights
     """
     ds = xr.open_dataset(filepath)
+
+    # Apply time slicing if requested
+    if time_range is not None:
+        start, end = time_range
+        ds = ds.sel(time=slice(start, end))
+
     ds = ds.where((ds.AoA > 0e-2) & (ds.AoA < 1e3), drop=True)
 
     lat = ds["lat"].values
@@ -121,7 +127,7 @@ def load_satellite_dataset(filepath):
     return _flatten_3d_fields(lat, alt, time, age, std, source_id=0)
 
 
-def load_model_dataset(filepath):
+def load_model_dataset(filepath, time_range=None):
     """
     Loads model-simulated mean age of air from NetCDF and converts pressure levels to km.
 
@@ -134,6 +140,9 @@ def load_model_dataset(filepath):
     - W: [N,] synthetic uncertainty weights
     """
     ds = xr.open_dataset(filepath)
+    if time_range is not None:
+        ds = ds.sel(time=slice(*time_range))
+
     ds = ds.isel(lon=0).ffill('lev')
 
     km = [std_atm.press2alt(p, press_units='pa', alt_units='km') for p in ds.lev.values]
@@ -144,12 +153,18 @@ def load_model_dataset(filepath):
     time = ds["time"].values.astype("float64")
 
     age = ds["AOA"].values
+    age = np.transpose(age, (0, 2, 1))
     std = np.ones_like(age) * 0.5
 
     return _flatten_3d_fields(lat, alt, time, age, std, source_id=2)
 
 
-def load_all_data_combined(sat_paths=None, insitu_paths=None, model_paths=None):
+def load_all_data_combined(
+    sat_paths=None,
+    insitu_paths=None,
+    model_paths=None,
+    time_range: tuple[str, str] = None  # e.g. ('2013', '2014')
+    ):
     """
     Loads and concatenates multiple datasets into one training-ready array.
 
@@ -167,7 +182,7 @@ def load_all_data_combined(sat_paths=None, insitu_paths=None, model_paths=None):
 
     if sat_paths:
         for path in sat_paths:
-            X, Gamma, W = load_satellite_dataset(path)
+            X, Gamma, W = load_satellite_dataset(path, time_range)
             X_all.append(X)
             Gamma_all.append(Gamma)
             W_all.append(W)
@@ -181,7 +196,7 @@ def load_all_data_combined(sat_paths=None, insitu_paths=None, model_paths=None):
 
     if model_paths:
         for path in model_paths:
-            X, Gamma, W = load_model_dataset(path)
+            X, Gamma, W = load_model_dataset(path, time_range)
             X_all.append(X)
             Gamma_all.append(Gamma)
             W_all.append(W)
