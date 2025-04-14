@@ -1,4 +1,7 @@
 def pinn_loss(model, X, Gamma_EI, W, tau_I_to_X_target=None, lambda_phys=1.0, lambda_sup=1.0):
+
+    import torch
+
     tau_pred, D_pred = model(X)
     
     Gamma_EI = Gamma_EI.clamp(min=1e-4)

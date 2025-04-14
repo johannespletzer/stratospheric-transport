@@ -1,5 +1,6 @@
-import xarray as xr
 import numpy as np
+import xarray as xr
+
 
 def load_insitu_dataset(filepath):
     ds = xr.open_dataset(filepath)
@@ -111,7 +112,7 @@ def load_model_dataset(filepath):
 
     return X, Gamma, W
 
-def load_all_data_combined(sat_paths=[], insitu_paths=[], model_paths=[]):
+def load_all_data_combined(sat_paths=None, insitu_paths=None, model_paths=None):
     
     X_all, Gamma_all, W_all = [], [], []
 

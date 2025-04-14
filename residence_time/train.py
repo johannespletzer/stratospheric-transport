@@ -1,9 +1,10 @@
 import torch
 
+
 def create_train_val_loaders(X, Gamma, W, tau_R=None, batch_size=256, val_split=0.2, device='cuda'):
 
-    from torch.utils.data import TensorDataset, DataLoader
     from sklearn.model_selection import train_test_split
+    from torch.utils.data import DataLoader, TensorDataset
 
     X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
         X, Gamma, W, tau_R, test_size=val_split, random_state=42
@@ -87,6 +88,9 @@ def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
     return train_losses, val_losses, physics_losses, supervised_losses
 
 def load_latest_checkpoint(model, optimizer=None, checkpoint_dir="checkpoints"):
+
+    import glob
+
     checkpoint_files = sorted(glob.glob(f"{checkpoint_dir}/pinn_checkpoint_*.pth"))
     if not checkpoint_files:
         print("No checkpoint found.")
@@ -100,7 +104,7 @@ def load_latest_checkpoint(model, optimizer=None, checkpoint_dir="checkpoints"):
         
     print(f"Loaded checkpoint from {latest_checkpoint}")
 
-def save_checkpoint(checkpoint_dir="checkpoints"):
+def save_checkpoint(model, optimizer, checkpoint_dir="checkpoints"):
 
     from datetime import datetime
 
@@ -112,4 +116,4 @@ def save_checkpoint(checkpoint_dir="checkpoints"):
         "timestamp": timestamp,
     }, checkpoint_path)
         
-    print(f"Saved checkpoint {latest_checkpoint} in {checkpoint_dir}")
+    print(f"Saved checkpoint latest checkpoint in {checkpoint_dir}")

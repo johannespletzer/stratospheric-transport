@@ -1,5 +1,6 @@
 import torch.nn as nn
 
+
 class PINNModel(nn.Module):
     def __init__(self, input_dim=5, hidden_dim=64, hidden_layers=3, include_D=True):
         """
@@ -10,7 +11,7 @@ class PINNModel(nn.Module):
         :param include_D: If True, include the D prediction branch; if False, only tau_R is predicted.
         """
 
-        super(PINNModel, self).__init__()
+        super().__init__()
         self.include_D = include_D
         
         # Define the tau_R branch (MLP)
