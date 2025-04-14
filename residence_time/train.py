@@ -1,7 +1,7 @@
+import torch
 
 def create_train_val_loaders(X, Gamma, W, tau_R=None, batch_size=256, val_split=0.2, device='cuda'):
 
-    import torch
     from torch.utils.data import TensorDataset, DataLoader
     from sklearn.model_selection import train_test_split
 
@@ -27,3 +27,89 @@ def scale_variables(X_obs):
     X_scaled = scaler_X.fit_transform(X_obs)
 
     return X_scaled, scaler_X
+
+def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
+                              lambda_phys_start=1.0, lambda_sup_start=1.0, decay_rate=0.95):
+    
+    train_losses, val_losses, physics_losses, supervised_losses = [], [], [], []
+
+    for epoch in range(1, n_epochs + 1):
+        model.train()
+        train_loss = 0
+        phys_loss_total = 0
+        sup_loss_total = 0
+
+        # Exponentially decay physics constraint weight
+        lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 50))
+        lambda_sup = lambda_sup_start
+
+        for Xb, Gb, Wb, Tb in train_loader:
+            Gamma = Gb.clamp(min=1e-4)
+            tau_R_pred, D_pred = model(Xb)
+
+            tau_R_phys = 2 * D_pred**2 / Gamma
+            loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys)**2)
+            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+
+            loss = lambda_phys * loss_phys + lambda_sup * loss_sup
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+            phys_loss_total += loss_phys.item()
+            sup_loss_total += loss_sup.item()
+
+        train_losses.append(train_loss)
+        physics_losses.append(phys_loss_total)
+        supervised_losses.append(sup_loss_total)
+
+        # Validation
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for Xb, Gb, Wb, Tb in val_loader:
+                Gamma = Gb.clamp(min=1e-4)
+                tau_R_pred, D_pred = model(Xb)
+                tau_R_phys = 2 * D_pred**2 / Gamma
+                loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys)**2)
+                loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+                loss = lambda_phys * loss_phys + lambda_sup * loss_sup
+                val_loss += loss.item()
+
+        val_losses.append(val_loss)
+
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
+                  f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
+
+    return train_losses, val_losses, physics_losses, supervised_losses
+
+def load_latest_checkpoint(model, optimizer=None, checkpoint_dir="checkpoints"):
+    checkpoint_files = sorted(glob.glob(f"{checkpoint_dir}/pinn_checkpoint_*.pth"))
+    if not checkpoint_files:
+        print("No checkpoint found.")
+        return
+
+    latest_checkpoint = checkpoint_files[-1]
+    checkpoint = torch.load(latest_checkpoint)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    if optimizer and "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        
+    print(f"Loaded checkpoint from {latest_checkpoint}")
+
+def save_checkpoint(checkpoint_dir="checkpoints"):
+
+    from datetime import datetime
+
+    timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
+    checkpoint_path = f"{checkpoint_dir}/pinn_checkpoint_{timestamp}.pth"
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "timestamp": timestamp,
+    }, checkpoint_path)
+        
+    print(f"Saved checkpoint {latest_checkpoint} in {checkpoint_dir}")
