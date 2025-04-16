@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 class PINNModel(nn.Module):
     """
     Physics-Informed Neural Network (PINN) model for predicting residence time (τ_R)
@@ -31,32 +30,40 @@ class PINNModel(nn.Module):
     """
 
     def __init__(self, input_dim: int = 5, hidden_dim: int = 64, hidden_layers: int = 3, include_D: bool = True):
+
         super().__init__()
         self.include_D = include_D
 
         # Define τ_R branch (shared architecture: MLP with Tanh)
-        self.tauR_branch = self._build_mlp(input_dim, hidden_dim, hidden_layers, output_dim=1)
-
-        # Define D branch if enabled
-        self.D_branch = self._build_mlp(input_dim, hidden_dim, hidden_layers, output_dim=1) if include_D else None
-
-        # Ensure positive outputs
-        self.softplus = nn.Softplus()
-
-    def _build_mlp(self, input_dim, hidden_dim, hidden_layers, output_dim):
-        """Utility to build a feedforward MLP."""
-        layers = []
+        layers_tau = []
         in_dim = input_dim
         for _ in range(hidden_layers):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.Tanh())
+            layers_tau.append(nn.Linear(in_dim, hidden_dim))
+            layers_tau.append(nn.Tanh())  # non-linear activation for hidden layers
             in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, output_dim))
-        return nn.Sequential(*layers)
+        layers_tau.append(nn.Linear(in_dim, 1))  # output layer for tau_R
+        self.tauR_branch = nn.Sequential(*layers_tau)
+        
+        # Define the D branch (MLP), if enabled
+        if include_D:
+            layers_D = []
+            in_dim = input_dim
+            for _ in range(hidden_layers):
+                layers_D.append(nn.Linear(in_dim, hidden_dim))
+                layers_D.append(nn.Tanh())
+                in_dim = hidden_dim
+            layers_D.append(nn.Linear(in_dim, 1))  # output layer for D
+            self.D_branch = nn.Sequential(*layers_D)
+        else:
+            self.D_branch = None
+        
+        # Softplus activation for outputs to ensure positivity
+        self.softplus = nn.Softplus()
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def forward(self, x):
         """
-        Forward pass through the network.
+        Forward pass: returns (tau_R_pred, D_pred).
+        If include_D=False, D_pred will be None.
 
         Parameters
         ----------
@@ -71,6 +78,9 @@ class PINNModel(nn.Module):
         D_pred : torch.Tensor [N, 1] or None
             Predicted diffusivity (D), or None if include_D=False.
         """
+        # Compute tau_R prediction
         tau_R_pred = self.softplus(self.tauR_branch(x))
+        # Compute D prediction if applicable
         D_pred = self.softplus(self.D_branch(x)) if self.include_D else None
+            
         return tau_R_pred, D_pred
