@@ -1,43 +1,8 @@
 import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
+from residence_time.utils import datetime64_to_year_fraction
 from aerocalc3 import std_atm
-
-
-def _flatten_3d_fields(lat, alt, time, field, std, source_id):
-    """
-    Flattens 3D gridded data fields (lat, alt, time) into a 2D array of samples for modeling.
-
-    Parameters:
-    - lat, alt, time: 1D coordinate arrays
-    - field: 3D array of the main variable (e.g. age of air)
-    - std: 3D array of standard deviations for field
-    - source_id: int, source label (0=satellite, 1=in-situ, 2=model)
-
-    Returns:
-    - X: [N, 5] array with columns [lat, alt, time, source_id, field]
-    - Gamma: [N,] array with field values (target)
-    - W: [N,] array of weights (1 / std²)
-    """
-    time_grid, lat_grid, alt_grid = np.meshgrid(time, lat, alt, indexing='ij')
-
-    flat_X = np.stack([
-        lat_grid.flatten(),
-        alt_grid.flatten(),
-        time_grid.flatten(),
-        np.full_like(field.flatten(), source_id),
-        field.flatten()
-    ], axis=1)
-
-    std_flat = std.flatten()
-    valid = ~np.isnan(flat_X[:, 4]) & ~np.isnan(std_flat)
-
-    Gamma = np.clip(flat_X[valid, 4], 0., None)
-    std_safe = np.clip(std_flat[valid], 1e-2, None)
-    W = 1.0 / (std_safe**2 + 1e-8)
-    W = np.clip(W, 0, 1e3)
-
-    return flat_X[valid], Gamma, W
 
 
 def load_insitu_dataset(filepath):
@@ -115,16 +80,33 @@ def load_satellite_dataset(filepath, time_range=None):
         start, end = time_range
         ds = ds.sel(time=slice(start, end))
 
-    ds = ds.where((ds.AoA > 0e-2) & (ds.AoA < 1e3), drop=True)
-
     lat = ds["lat"].values
     alt = ds["alt"].values
-    time = ds["time"].values.astype("float64")
-
+    time = ds["time"].values
+    time = datetime64_to_year_fraction(time)
     age = ds["AoA"].values
     std = ds["AoA_STD"].values
+    sou = np.full_like(age,0)      # source: 0 satellite, 1 in-situ, 2 model
 
-    return _flatten_3d_fields(lat, alt, time, age, std, source_id=0)
+    # Create meshgrid
+    time_grid, lat_grid, alt_grid = np.meshgrid(time, lat, alt, indexing='ij')
+    lat_flat = lat_grid.flatten()
+    alt_flat = alt_grid.flatten()
+    time_flat = time_grid.flatten()
+
+    # Flatten age and std
+    age_flat = age.flatten()
+    std_flat = std.flatten()
+    sou_flat = sou.flatten()
+
+    fillval = -999
+    valid = (age_flat != fillval) & (std_flat != fillval) & ~np.isnan(age_flat) & ~np.isnan(std_flat)
+
+    X = np.stack([lat_flat, alt_flat, time_flat, sou_flat, age_flat], axis=1)[valid]
+    Gamma = age_flat[valid]
+    W = 1.0 / (std_flat[valid]**2 + 1e-8)
+
+    return X, Gamma, W
 
 
 def load_model_dataset(filepath, time_range=None):
@@ -144,26 +126,47 @@ def load_model_dataset(filepath, time_range=None):
         ds = ds.sel(time=slice(*time_range))
 
     ds = ds.isel(lon=0).ffill('lev')
-
-    km = [std_atm.press2alt(p, press_units='pa', alt_units='km') for p in ds.lev.values]
+    km = [std_atm.press2alt(x,press_units='pa',alt_units='km') for x in ds.lev.values]
     ds = ds.assign_coords(lev=km)
 
     lat = ds["lat"].values
     alt = ds["lev"].values
-    time = ds["time"].values.astype("float64")
-
-    age = ds["AOA"].values
+    time = ds["time"].values
+    time = datetime64_to_year_fraction(time)
+    age = ds["AOA"].values         # shape: (time, lat, alt)
     age = np.transpose(age, (0, 2, 1))
-    std = np.ones_like(age) * 0.5
+    std = np.ones_like(age) * 0.5  # reliable 10-100, moderately reliable 1, uncertain 0.01-0.1
+    sou = np.full_like(age,2)      # source: 0 satellite, 1 in-situ, 2 model
+    
+    # Create meshgrid
+    time_grid, lat_grid, alt_grid = np.meshgrid(time, lat, alt, indexing='ij')
+    lat_flat = lat_grid.flatten()
+    alt_flat = alt_grid.flatten()
+    time_flat = time_grid.flatten()
 
-    return _flatten_3d_fields(lat, alt, time, age, std, source_id=2)
+    # Flatten age and std
+    age_flat = age.flatten()
+    std_flat = std.flatten()
+    sou_flat = sou.flatten()
+    
+    valid = ~np.isnan(age_flat) & ~np.isnan(std_flat)
+
+    X = np.stack([lat_flat, alt_flat, time_flat, sou_flat, age_flat], axis=1)[valid]
+    
+    Gamma = np.clip(age_flat[valid], 0., None)
+    
+    std_safe = np.clip(std_flat[valid], 1e-2, None)
+    W = 1.0 / (std_safe**2 + 1e-8)
+    W = np.clip(W, 0, 1e3)
+
+    return X, Gamma, W
 
 
 def load_all_data_combined(
     sat_paths=None,
     insitu_paths=None,
     model_paths=None,
-    time_range: tuple[str, str] = None  # e.g. ('2013', '2014')
+    time_range: tuple[str, str] = None
     ):
     """
     Loads and concatenates multiple datasets into one training-ready array.
