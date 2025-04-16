@@ -180,7 +180,7 @@ def plot_field_from_data(
     plt.ylabel("Altitude [km]")
 
     # Format time from ns float → YYYY-MM
-    time_label = float_to_year_month(time_fixed)
+    time_label = float_to_year_month(time_fixed) if time_fixed>1e4 else time_fixed
     
     plt.title(
         rf"Predicted {field} | time={time_label}, source={int(source_fixed)}, $\Gamma_{{EI}}$={gamma_fixed:.2e}"
