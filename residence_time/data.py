@@ -74,6 +74,7 @@ def load_satellite_dataset(filepath, time_range=None):
     - W: [N,] inverse variance weights
     """
     ds = xr.open_dataset(filepath)
+    ds = ds.where(ds.AoA>=1e-5)
 
     # Apply time slicing if requested
     if time_range is not None:
@@ -125,7 +126,7 @@ def load_model_dataset(filepath, time_range=None):
     if time_range is not None:
         ds = ds.sel(time=slice(*time_range))
 
-    ds = ds.isel(lon=0).ffill('lev')
+    ds = ds.where(ds.AOA>=1e-5).isel(lon=0).ffill('lev')
     km = [std_atm.press2alt(x,press_units='pa',alt_units='km') for x in ds.lev.values]
     ds = ds.assign_coords(lev=km)
 
@@ -133,9 +134,9 @@ def load_model_dataset(filepath, time_range=None):
     alt = ds["lev"].values
     time = ds["time"].values
     time = datetime64_to_year_fraction(time)
-    age = ds["AOA"].values         # shape: (time, lat, alt)
+    age = ds["AOA"].values  
     age = np.transpose(age, (0, 2, 1))
-    std = np.ones_like(age) * 0.5  # reliable 10-100, moderately reliable 1, uncertain 0.01-0.1
+    std = np.ones_like(age) * 0.5 
     sou = np.full_like(age,2)      # source: 0 satellite, 1 in-situ, 2 model
     
     # Create meshgrid
@@ -155,8 +156,7 @@ def load_model_dataset(filepath, time_range=None):
     
     Gamma = np.clip(age_flat[valid], 0., None)
     
-    std_safe = np.clip(std_flat[valid], 1e-2, None)
-    W = 1.0 / (std_safe**2 + 1e-8)
+    W = 1.0 / (std_flat**2 + 1e-8)
     W = np.clip(W, 0, 1e3)
 
     return X, Gamma, W

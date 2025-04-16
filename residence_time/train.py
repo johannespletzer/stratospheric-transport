@@ -101,13 +101,13 @@ def scale_variables_columnwise(X_obs, scaler='MinMaxScaler'):
     scaler_X : sklearn.compose.ColumnTransformer
         Fitted transformer for later use on validation/test data.
     """
-    from sklearn.preprocessing import StandardScaler, MinMaxScaler
+    from sklearn.preprocessing import StandardScaler, MinMaxScaler, FunctionTransformer
     from sklearn.compose import ColumnTransformer
 
     scaler_X = ColumnTransformer(
         transformers=[
-            ("scale", StandardScaler() if scaler=='StandardScaler' else MinMaxScaler(), [0, 1, 2]),        # scale lat, alt, time
-            ("passthrough", "passthrough", [3, 4])         # source ID and Gamma_EI stay unchanged
+            ("scale", StandardScaler() if scaler == 'StandardScaler' else MinMaxScaler(), [0, 1, 2]),
+            ("identity", FunctionTransformer(validate=False), [3, 4])  # identity transform
         ]
     )
 
@@ -232,35 +232,3 @@ def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
                   f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
 
     return train_losses, val_losses, physics_losses, supervised_losses
-
-
-def load_latest_checkpoint(model, optimizer=None, checkpoint_dir="checkpoints"):
-
-    import glob
-
-    checkpoint_files = sorted(glob.glob(f"{checkpoint_dir}/pinn_checkpoint_*.pth"))
-    if not checkpoint_files:
-        print("No checkpoint found.")
-        return
-
-    latest_checkpoint = checkpoint_files[-1]
-    checkpoint = torch.load(latest_checkpoint)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    if optimizer and "optimizer_state_dict" in checkpoint:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        
-    print(f"Loaded checkpoint from {latest_checkpoint}")
-
-def save_checkpoint(model, optimizer, checkpoint_dir="checkpoints"):
-
-    from datetime import datetime
-
-    timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
-    checkpoint_path = f"{checkpoint_dir}/pinn_checkpoint_{timestamp}.pth"
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "timestamp": timestamp,
-    }, checkpoint_path)
-        
-    print(f"Saved latest checkpoint in {checkpoint_dir}")
