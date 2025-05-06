@@ -40,6 +40,8 @@ stratospheric-transport/
 
 ## Acknowledgements
 
-This project builds on atmospheric age of air datasets of satellite and in-situ measurements provided by:
+This project builds on atmospheric age of air datasets from satellite and in-situ measurements and tropopause parameters from reanalysis. These originate from the following sources:
 
-Garny et al. 2024 ["Age of stratospheric air: observational data sets (v2)"](https://zenodo.org/records/13906743)
+- Garny et al. 2024: ["Age of stratospheric air: observational data sets (v2)"](https://zenodo.org/records/13906743)
+
+- Hoffmann and Spang 2021: ["Reanalysis Tropopause Data Repository"](https://doi.org/10.26165/JUELICH-DATA/UBNGI2)
