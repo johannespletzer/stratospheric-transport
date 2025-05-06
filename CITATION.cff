@@ -5,7 +5,7 @@ authors:
     family-names: Pletzer
     affiliation: 'DLR, Germany'
     orcid: 'https://orcid.org/0000-0003-3210-3496'
-title: stratospheric_transport
+title: stratospheric-transport
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
@@ -13,7 +13,7 @@ type: software
 abstract: >-
   A Python package to estimate residence time from age of air data. Based 
   on a neural network.
-repository-code: 'https://github.com/johannespletzer/stratospheric_transport'
+repository-code: 'https://github.com/johannespletzer/stratospheric-transport'
 keywords:
   - age of air
   - residence time
@@ -23,6 +23,20 @@ keywords:
   - emission
   - stratosphere
   - response model
-license: AGPL-3.0
+license: CC BY-NC-ND 4.0
 version: '0.1'
 cff-version: 1.2.0
+
+references:
+  - type: dataset
+    authors:
+      - family-names: Hoffmann
+        given-names: Lars
+      - family-names: Spang
+        given-names: Reinhold
+    title: "Reanalysis Tropopause Data Repository"
+    year: 2021
+    version: V1
+    doi: 10.26165/JUELICH-DATA/UBNGI2
+    url: https://doi.org/10.26165/JUELICH-DATA/UBNGI2
+    publisher: "Jülich DATA"
