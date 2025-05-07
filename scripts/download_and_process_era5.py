@@ -20,7 +20,7 @@ from residence_time.prep import (
 
 BASE_URL = "https://datapub.fz-juelich.de/slcs/tropopause/data/v1/era5low/"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "../", "data/", "ERA5/")
+DEFAULT_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "../", "data", "tropopause")
 
 def main(start_year: int, end_year: int, download_dir: str):
     os.makedirs(download_dir, exist_ok=True)
@@ -58,7 +58,7 @@ def main(start_year: int, end_year: int, download_dir: str):
             print("  All files already downloaded.")
 
     print("Concatenating files...")
-    dataset = concatenate_files(download_dir)
+    dataset = concatenate_files(download_dir, allowed_years=[str(y) for y in selected_years])
 
     print(f"Saving dataset to {output_file}")
     dataset.to_netcdf(output_file)

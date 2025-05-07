@@ -51,15 +51,18 @@ def download_files_multithreaded(file_urls, local_paths, max_workers=8):
         for future in as_completed(futures):
             future.result()
 
-def concatenate_files(download_dir):
+def concatenate_files(download_dir, allowed_years=None):
     dataset_files = []
     for root, _, files in os.walk(download_dir):
-        for file in files:
-            if file.endswith('.nc'):
-                dataset_files.append(os.path.join(root, file))
-    
-    dataset_files.sort()  # Always good to sort for stability
+        # Check if current folder matches one of the allowed years (if provided)
+        if allowed_years is not None:
+            year_dirname = os.path.basename(root)
+            if year_dirname not in allowed_years:
+                continue
 
+        for file in files:
+            if file.endswith(".nc"):
+                dataset_files.append(os.path.join(root, file))
     print(f"Opening {len(dataset_files)} NetCDF files...")
 
     ds = xr.open_mfdataset(

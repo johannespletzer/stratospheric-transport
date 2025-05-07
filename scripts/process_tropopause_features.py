@@ -24,18 +24,6 @@ def coefficient_of_variation(x: Union[np.ndarray, xr.DataArray], axis: int = 0) 
     """Compute coefficient of variation along a given axis."""
     return np.std(x, axis=axis) / np.mean(x, axis=axis)
 
-def cleanup_dask_worker_space():
-    """Remove the dask-worker-space directory from the project root if it exists."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, "../"))
-    dask_dir = os.path.join(project_root, "dask-worker-space")
-
-    if os.path.exists(dask_dir):
-        print(f"Removing {dask_dir}")
-        shutil.rmtree(dask_dir)
-    else:
-        print("No dask-worker-space directory found — nothing to clean.")
-
 def main(infile: str, outfile: str):
     print(f"Loading data from {infile}")
 
@@ -87,9 +75,6 @@ def main(infile: str, outfile: str):
     ds_out.to_dataframe().to_csv(outfile)
     print("Done.")
 
-    # Clean up temp directory
-    cleanup_dask_worker_space()
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract monthly tropopause features from ERA5 data.")
     parser.add_argument("--infile", type=str, required=True, help="Path to concatenated ERA5 NetCDF file.")
@@ -99,7 +84,7 @@ if __name__ == "__main__":
     if args.outfile is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.abspath(os.path.join(script_dir, "../"))
-        data_dir = os.path.join(project_root, "data")
+        data_dir = os.path.join(project_root, "data", "tropopause")
         os.makedirs(data_dir, exist_ok=True)
         args.outfile = os.path.join(data_dir, "tropopause_features_monthly.csv")
 

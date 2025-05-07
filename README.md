@@ -28,7 +28,7 @@ python scripts/download_and_process_era5.py --start-year 1980 --end-year 2018
 Extract tropopause parameters. Input file and output directory can be declared freely.
 
 ```python
-python script/process_tropopause_features.py --infile data/processed/era5_tropopause_combined.nc
+python scripts/process_tropopause_features.py --infile data/processed/era5_tropopause_combined.nc
 ```
 
 ---
