@@ -171,11 +171,6 @@ def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
             Gamma = Gb.clamp(min=1e-2)
             tau_R_pred, D_pred = model(Xb)
         
-#            print("D_pred stats:",
-#                  torch.isnan(D_pred).any().item(),
-#                  D_pred.min().item() if not torch.isnan(D_pred).any() else 'nan',
-#                  D_pred.max().item() if not torch.isnan(D_pred).any() else 'nan')
-        
             if D_pred is not None:
                 D_clamped = D_pred.clamp(min=1e-2, max=10.0)
                 tau_R_phys = 2 * D_clamped**2 / Gamma
@@ -194,13 +189,6 @@ def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
             train_loss += loss.item()
             phys_loss_total += loss_phys.item()
             sup_loss_total += loss_sup.item()
-
-#        if epoch==1:
-#            print("tau_R_pred:", tau_R_pred[:5].flatten())
-#            print("D_pred:", D_pred[:5].flatten())
-#            print("Gamma:", Gamma[:5])
-#            print("tau_R_phys:", tau_R_phys[:5].flatten())
-#            print("loss_phys:", loss_phys.item())
 
         train_losses.append(train_loss)
         physics_losses.append(phys_loss_total)
