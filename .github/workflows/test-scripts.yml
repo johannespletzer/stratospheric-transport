@@ -26,8 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install dask distributed xarray numpy pandas
+          pip install -e .
 
       - name: Run download_and_process_era5.py
         run: |
