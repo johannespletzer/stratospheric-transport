@@ -17,34 +17,20 @@ The network is based on:
 
 ---
 
-## Repository Structure
-
-```text
-stratospheric-transport/
-│
-├── residence_time/         # Core Python package
-│   ├── data.py             # Load satellite, in-situ, model datasets
-│   ├── model.py            # PINN model definition
-│   ├── train.py            # Training loop with tracking
-│   ├── utils.py
-│
-├── scripts/
-├── tests/            
-├── pyproject.toml
-├── README.md
-├── LICENSE
-├── CITATION.cff
-```
-
----
-
 ## Data Preparation
 
 Download tropopause parameters for training. Consider using the --output parameter to define a download directory due to the data size.
 
 ```python
-python script/download_and_process_era5.py --start-year 1980 --end-year 2018
+python scripts/download_and_process_era5.py --start-year 1980 --end-year 2018
 ```
+
+Extract tropopause parameters. Input file and output directory can be declared freely.
+
+```python
+python script/process_tropopause_features.py --infile data/processed/era5_tropopause_combined.nc
+```
+
 ---
 
 ## Acknowledgements
