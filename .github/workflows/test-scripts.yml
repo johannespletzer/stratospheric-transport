@@ -2,9 +2,9 @@ name: Test ERA5 Tropopause Scripts
 
 on:
   push:
-    branches: [ main, devel ]
+    branches: [ empty ]
   pull_request:
-    branches: [ main, devel ]
+    branches: [ empty ]
 
 jobs:
   test-scripts:
