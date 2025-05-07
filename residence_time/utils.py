@@ -1,11 +1,12 @@
 import os
-import torch
-import joblib
 from datetime import datetime
 
+import joblib
+import torch
+
+
 def datetime64_to_year_fraction(t):
-    """
-    Convert datetime64[ns] array to fractional years.
+    """Convert datetime64[ns] array to fractional years.
 
     Parameters
     ----------
@@ -16,6 +17,7 @@ def datetime64_to_year_fraction(t):
     -------
     np.ndarray
         Array of fractional years (e.g. 2004.04).
+
     """
     import pandas as pd
 
@@ -59,8 +61,7 @@ def save_checkpoint(model, optimizer, checkpoint_dir="checkpoints"):
     print(f"Saved latest checkpoint in {checkpoint_dir}")
 
 def save_scaler(scaler, scaler_dir="checkpoints", prefix="scaler"):
-    """
-    Saves a fitted sklearn scaler (e.g., MinMaxScaler) to disk with a timestamped filename.
+    """Saves a fitted sklearn scaler (e.g., MinMaxScaler) to disk with a timestamped filename.
 
     Parameters
     ----------
@@ -77,6 +78,7 @@ def save_scaler(scaler, scaler_dir="checkpoints", prefix="scaler"):
     -------
     scaler_path : str
         Path to the saved scaler file.
+
     """
     os.makedirs(scaler_dir, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

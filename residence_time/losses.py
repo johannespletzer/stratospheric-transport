@@ -10,8 +10,7 @@ def pinn_loss(
     lambda_phys: float = 1.0,
     lambda_sup: float = 1.0,
 ) -> torch.Tensor:
-    """
-    Computes the total loss for a physics-informed neural network (PINN),
+    """Computes the total loss for a physics-informed neural network (PINN),
     combining a physics-based residual loss and an optional supervised loss.
 
     Parameters
@@ -44,6 +43,7 @@ def pinn_loss(
     -------
     torch.Tensor
         Scalar loss value (weighted sum of physics + supervised losses).
+
     """
     tau_pred, D_pred = model(X)
 

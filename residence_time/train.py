@@ -10,8 +10,7 @@ def create_train_val_loaders(
     val_split=0.2,
     device='cuda'
     ):
-    """
-    Splits data into training and validation sets and returns DataLoaders
+    """Splits data into training and validation sets and returns DataLoaders
     with (X, Gamma, W, tau_R) tuples for PINN training.
 
     Parameters
@@ -45,10 +44,11 @@ def create_train_val_loaders(
 
     val_loader : DataLoader
         PyTorch DataLoader for validation data.
+
     """
+    import numpy as np
     from sklearn.model_selection import train_test_split
     from torch.utils.data import DataLoader, TensorDataset
-    import numpy as np
 
     if tau_R is not None:
         X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
@@ -84,8 +84,7 @@ def scale_variables(X_obs):
 
 
 def scale_variables_columnwise(X_obs, scaler='MinMaxScaler'):
-    """
-    Scales selected columns of X_obs using StandardScaler, and leaves others untouched.
+    """Scales selected columns of X_obs using StandardScaler, and leaves others untouched.
 
     Columns:
     [0] Latitude
@@ -100,9 +99,10 @@ def scale_variables_columnwise(X_obs, scaler='MinMaxScaler'):
         Scaled input array.
     scaler_X : sklearn.compose.ColumnTransformer
         Fitted transformer for later use on validation/test data.
+
     """
-    from sklearn.preprocessing import StandardScaler, MinMaxScaler, FunctionTransformer
     from sklearn.compose import ColumnTransformer
+    from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
 
     scaler_X = ColumnTransformer(
         transformers=[
@@ -117,8 +117,7 @@ def scale_variables_columnwise(X_obs, scaler='MinMaxScaler'):
 
 def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
                               lambda_phys_start=1.0, lambda_sup_start=1.0, decay_rate=0.95):
-    """
-    Trains a PINN model using both physics-based and supervised losses.
+    """Trains a PINN model using both physics-based and supervised losses.
 
     Parameters
     ----------
@@ -152,6 +151,7 @@ def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
     val_losses : list of float
     physics_losses : list of float
     supervised_losses : list of float
+
     """
     train_losses, val_losses, physics_losses, supervised_losses = [], [], [], []
 

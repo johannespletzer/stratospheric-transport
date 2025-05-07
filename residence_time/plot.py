@@ -1,6 +1,6 @@
-import torch
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 
 def plot_physics_residual(
@@ -10,8 +10,7 @@ def plot_physics_residual(
     device: str = 'cuda',
     return_residuals: bool = False
 ):
-    """
-    Plots a histogram of physics residuals: τ_R predicted - (2·D² / Γ),
+    """Plots a histogram of physics residuals: τ_R predicted - (2·D² / Γ),
     showing how well the model satisfies the physical relationship.
 
     Parameters
@@ -36,6 +35,7 @@ def plot_physics_residual(
     -------
     residuals : np.ndarray, optional
         Array of physics residuals if `return_residuals=True`.
+
     """
     model.eval()
     residuals = []
@@ -69,8 +69,7 @@ def plot_physics_residual(
 
 
 def float_to_year_month(float_time_ns: float) -> str:
-    """
-    Converts a float64 datetime64 in nanoseconds to a YYYY-MM string.
+    """Converts a float64 datetime64 in nanoseconds to a YYYY-MM string.
     
     Assumes the float was created via: np.datetime64(..., 'ns').astype('float64')
     """
@@ -90,8 +89,7 @@ def plot_field_from_data(
     device: str = 'cuda',
     return_data: bool = False
 ):
-    """
-    Plots a spatial field (τ_R or D) as a function of latitude and altitude,
+    """Plots a spatial field (τ_R or D) as a function of latitude and altitude,
     using a trained PINN model and input data from a model dataset.
 
     Parameters
@@ -138,6 +136,7 @@ def plot_field_from_data(
 
         field_grid : np.ndarray
             Predicted τ_R or D values over the grid.
+
     """
     model.eval()
 
@@ -201,8 +200,7 @@ def plot_training_progress(
     log_scale: bool = True,
     save_path: str = None
 ):
-    """
-    Plots the evolution of training and validation losses over epochs,
+    """Plots the evolution of training and validation losses over epochs,
     including physics-based and supervised loss components.
 
     Parameters
@@ -224,6 +222,7 @@ def plot_training_progress(
 
     save_path : str, optional
         If provided, saves the plot to the specified path.
+
     """
     epochs = range(1, len(train_losses) + 1)
 
@@ -255,8 +254,7 @@ def plot_training_progress(
 
 
 def plot_tau_R_prediction_vs_target(model, dataloader, device: str = 'cuda'):
-    """
-    Plots a scatter plot comparing predicted τ_R vs. target τ_R from a single validation batch.
+    """Plots a scatter plot comparing predicted τ_R vs. target τ_R from a single validation batch.
 
     Parameters
     ----------
@@ -273,6 +271,7 @@ def plot_tau_R_prediction_vs_target(model, dataloader, device: str = 'cuda'):
     -------
     None
         Displays a matplotlib scatter plot.
+
     """
     model.eval()
 

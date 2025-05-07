@@ -1,23 +1,26 @@
 import numpy as np
 import xarray as xr
-from scipy.interpolate import RegularGridInterpolator
-from residence_time.utils import datetime64_to_year_fraction
 from aerocalc3 import std_atm
+from scipy.interpolate import RegularGridInterpolator
+
+from residence_time.utils import datetime64_to_year_fraction
 
 
 def load_insitu_dataset(filepath):
-    """
-    Loads balloon/aircraft (in-situ) age-of-air observations from NetCDF.
+    """Loads balloon/aircraft (in-situ) age-of-air observations from NetCDF.
 
     Prefers SF6 data where available, falls back to CO2 otherwise.
 
-    Parameters:
+    Parameters
+    ----------
     - filepath: path to NetCDF file with in-situ measurements
 
-    Returns:
+    Returns
+    -------
     - X: [N, 5] array with columns [lat, alt, time, source_id=1, mean_age]
     - Gamma: [N,] mean age (target variable)
     - W: [N,] inverse variance weights
+
     """
     ds = xr.open_dataset(filepath)
     ds = ds.mean('season')
@@ -62,16 +65,18 @@ def load_insitu_dataset(filepath):
 
 
 def load_satellite_dataset(filepath, time_range=None):
-    """
-    Loads satellite-based age-of-air observations from NetCDF (e.g. ACE-FTS or MIPAS).
+    """Loads satellite-based age-of-air observations from NetCDF (e.g. ACE-FTS or MIPAS).
 
-    Parameters:
+    Parameters
+    ----------
     - filepath: path to satellite NetCDF file with AoA and AoA_STD variables
 
-    Returns:
+    Returns
+    -------
     - X: [N, 5] array with [lat, alt, time, source_id=0, AoA]
     - Gamma: [N,] AoA values (target variable)
     - W: [N,] inverse variance weights
+
     """
     ds = xr.open_dataset(filepath)
     ds = ds.where(ds.AoA>=1e-5)
@@ -111,16 +116,18 @@ def load_satellite_dataset(filepath, time_range=None):
 
 
 def load_model_dataset(filepath, time_range=None):
-    """
-    Loads model-simulated mean age of air from NetCDF and converts pressure levels to km.
+    """Loads model-simulated mean age of air from NetCDF and converts pressure levels to km.
 
-    Parameters:
+    Parameters
+    ----------
     - filepath: path to NetCDF file with AOA(time, lat, lev), lev in pressure units
 
-    Returns:
+    Returns
+    -------
     - X: [N, 5] array with [lat, alt, time, source_id=2, AOA]
     - Gamma: [N,] AOA values (target variable)
     - W: [N,] synthetic uncertainty weights
+
     """
     ds = xr.open_dataset(filepath)
     if time_range is not None:
@@ -168,18 +175,20 @@ def load_all_data_combined(
     model_paths=None,
     time_range: tuple[str, str] = None
     ):
-    """
-    Loads and concatenates multiple datasets into one training-ready array.
+    """Loads and concatenates multiple datasets into one training-ready array.
 
-    Parameters:
+    Parameters
+    ----------
     - sat_paths: list of paths to satellite NetCDF files (optional)
     - insitu_paths: list of paths to in-situ NetCDF files (optional)
     - model_paths: list of paths to model output NetCDF files (optional)
 
-    Returns:
+    Returns
+    -------
     - X: [N, 5] stacked array with [lat, alt, time, source, Gamma]
     - Gamma: [N,] target values
     - W: [N,] weights (1 / std²)
+
     """
     X_all, Gamma_all, W_all = [], [], []
 
@@ -212,16 +221,18 @@ def load_all_data_combined(
 
 
 def load_tau_R(filename, X_obs):
-    """
-    Interpolates τ_R (residence time) from model grid to observation coordinates.
+    """Interpolates τ_R (residence time) from model grid to observation coordinates.
 
-    Parameters:
+    Parameters
+    ----------
     - filename: path to NetCDF with tau(lev, lat)
     - X_obs: [N, 5] array of observation inputs, must include [lat, alt] in columns 0, 1
 
-    Returns:
+    Returns
+    -------
     - tau_R_interp: [N,] interpolated τ_R values
     - mask_valid: [N,] boolean mask where interpolation is valid (not NaN)
+
     """
     ds = xr.open_dataset(filename).ffill('lat')
 

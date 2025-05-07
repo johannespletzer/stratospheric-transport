@@ -38,6 +38,15 @@ stratospheric-transport/
 
 ---
 
+## Data Preparation
+
+Download tropopause parameters for training. Consider using the --output parameter to define a download directory due to the data size.
+
+```python
+python script/download_and_process_era5.py --start-year 1980 --end-year 2018
+```
+---
+
 ## Acknowledgements
 
 This project builds on atmospheric age of air datasets from satellite and in-situ measurements and tropopause parameters from reanalysis. These originate from the following sources:

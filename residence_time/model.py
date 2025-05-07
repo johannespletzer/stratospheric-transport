@@ -1,9 +1,8 @@
-import torch
 import torch.nn as nn
 
+
 class PINNModel(nn.Module):
-    """
-    Physics-Informed Neural Network (PINN) model for predicting residence time (τ_R)
+    """Physics-Informed Neural Network (PINN) model for predicting residence time (τ_R)
     and optionally effective diffusivity (D), based on input features such as latitude,
     altitude, time, source type, and mean age of air (Γ_EI).
 
@@ -27,6 +26,7 @@ class PINNModel(nn.Module):
     include_D : bool, default=True
         Whether to include the branch that predicts effective diffusivity D.
         If False, the model only predicts τ_R.
+
     """
 
     def __init__(self, input_dim: int = 5, hidden_dim: int = 64, hidden_layers: int = 3, include_D: bool = True):
@@ -61,8 +61,7 @@ class PINNModel(nn.Module):
         self.softplus = nn.Softplus()
 
     def forward(self, x):
-        """
-        Forward pass: returns (tau_R_pred, D_pred).
+        """Forward pass: returns (tau_R_pred, D_pred).
         If include_D=False, D_pred will be None.
 
         Parameters
@@ -77,6 +76,7 @@ class PINNModel(nn.Module):
 
         D_pred : torch.Tensor [N, 1] or None
             Predicted diffusivity (D), or None if include_D=False.
+
         """
         # Compute tau_R prediction
         tau_R_pred = self.softplus(self.tauR_branch(x))

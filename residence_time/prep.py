@@ -1,8 +1,10 @@
 import os
-import requests
-from bs4 import BeautifulSoup
-import xarray as xr
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
+import xarray as xr
+from bs4 import BeautifulSoup
+
 
 def list_year_folders(base_url):
     response = requests.get(base_url)
