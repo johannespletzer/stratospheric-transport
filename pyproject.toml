@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["residence_time*"]
 
 [tool.ruff]

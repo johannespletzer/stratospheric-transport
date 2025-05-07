@@ -20,7 +20,7 @@ from residence_time.prep import (
 
 BASE_URL = "https://datapub.fz-juelich.de/slcs/tropopause/data/v1/era5low/"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "resources", "ERA5")
+DEFAULT_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "../", "data/", "ERA5/")
 
 def main(start_year: int, end_year: int, download_dir: str):
     os.makedirs(download_dir, exist_ok=True)

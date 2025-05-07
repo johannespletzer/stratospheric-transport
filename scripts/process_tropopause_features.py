@@ -27,7 +27,7 @@ def coefficient_of_variation(x: Union[np.ndarray, xr.DataArray], axis: int = 0) 
 def cleanup_dask_worker_space():
     """Remove the dask-worker-space directory from the project root if it exists."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, "../../"))
+    project_root = os.path.abspath(os.path.join(script_dir, "../"))
     dask_dir = os.path.join(project_root, "dask-worker-space")
 
     if os.path.exists(dask_dir):
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.outfile is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(script_dir, "../../"))
+        project_root = os.path.abspath(os.path.join(script_dir, "../"))
         data_dir = os.path.join(project_root, "data")
         os.makedirs(data_dir, exist_ok=True)
         args.outfile = os.path.join(data_dir, "tropopause_features_monthly.csv")

@@ -30,7 +30,7 @@ jobs:
 
       - name: Run download_and_process_era5.py
         run: |
-          python residence_time/scripts/download_and_process_era5.py \
+          python scripts/download_and_process_era5.py \
             --start-year 2000 --end-year 2000 \
             --output temp/era5_test
 
@@ -40,7 +40,7 @@ jobs:
 
       - name: Run process_tropopause_features.py
         run: |
-          python residence_time/scripts/process_tropopause_features.py \
+          python scripts/process_tropopause_features.py \
             --infile temp/era5_test/era5_tropopause_combined.nc \
             --outfile temp/tropopause_features_test.csv
 
