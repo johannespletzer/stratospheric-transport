@@ -1,4 +1,6 @@
+import os
 import numpy as np
+import pandas as pd
 import xarray as xr
 from aerocalc3 import std_atm
 from scipy.interpolate import RegularGridInterpolator
@@ -247,3 +249,61 @@ def load_tau_R(filename, X_obs):
     mask_valid = ~np.isnan(tau_R_interp)
 
     return tau_R_interp, mask_valid
+
+def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Extends a [N, 5] input array X with 3 tropopause features and returns an uncertainty weight vector W.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Input array of shape [N, 5]: [lat, alt, time, source_id, Γ]
+    csv_path : str or None
+        Path to tropopause features CSV. If None, uses default in data/tropopause/.
+
+    Returns
+    -------
+    X_ext : np.ndarray
+        Extended input array of shape [N, 8] with appended features:
+        [lat, alt, time, source_id, Γ, tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol]
+
+    W : np.ndarray
+        Uncertainty weights derived from 1 / (std² + ε) for the 3 added features.
+        Shape: [N,]
+    """
+    if csv_path is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        csv_path = os.path.join(project_root, "data", "tropopause", "tropopause_features_monthly.csv")
+
+    df = pd.read_csv(csv_path, parse_dates=["time"])
+    df["year_frac"] = df["time"].dt.year + (df["time"].dt.month - 1) / 12
+
+    # Tropopause values and stds
+    features = ["tp_WMO_tro", "tp_WMO_sh_pol", "tp_WMO_nh_pol"]
+    stds = ["tp_WMO_tro_std", "tp_WMO_sh_pol_std", "tp_WMO_nh_pol_std"]
+
+    tp_values = df.set_index("year_frac")[features]
+    tp_stds = df.set_index("year_frac")[stds]
+
+    times = X[:, 2]
+    sources = X[:, 3]
+
+    X_ext = np.zeros((X.shape[0], 8))
+    W = np.ones(X.shape[0])  # default weights
+
+    X_ext[:, :5] = X
+
+    for i, (t, sid) in enumerate(zip(times, sources)):
+        if sid != 0:
+            X_ext[i, 5:] = 0.0
+            W[i] = 1.0  # uniform default weight
+        else:
+            # Find nearest time match
+            nearest_time = tp_values.index[np.abs(tp_values.index - t).argmin()]
+            X_ext[i, 5:] = tp_values.loc[nearest_time].values
+
+            std_vals = tp_stds.loc[nearest_time].values
+            W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)  # combined inverse-variance weight
+
+    return X_ext, W

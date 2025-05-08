@@ -87,60 +87,17 @@ def plot_field_from_data(
     source_value: float = None,
     gamma_value: float = None,
     device: str = 'cuda',
-    return_data: bool = False
+    return_data: bool = False,
+    use_tropopause_features: bool = False,
+    tp_csv_path: str = None,
 ):
-    """Plots a spatial field (τ_R or D) as a function of latitude and altitude,
-    using a trained PINN model and input data from a model dataset.
-
-    Parameters
-    ----------
-    model : torch.nn.Module
-        Trained PINN model returning (τ_R, D).
-
-    X : np.ndarray, shape (N, 5)
-        Full input dataset used for extracting lat/alt ranges and default values.
-        Columns: [lat, alt, time, source, Γ_EI].
-
-    scaler_X : sklearn-style transformer
-        Fitted scaler for normalizing model inputs.
-
-    field : str, default='tau_R'
-        Which field to plot: 'tau_R' or 'D'.
-
-    grid_res : tuple(int, int), default=(64, 40)
-        Resolution of the (latitude, altitude) grid to evaluate.
-
-    time_value : float, optional
-        Fixed time value to use across the grid. If None, median from X is used.
-
-    source_value : float, optional
-        Fixed source label (e.g. 0=sat, 1=in-situ, 2=model). If None, median from X is used.
-
-    gamma_value : float, optional
-        Fixed mean age of air (Γ_EI). If None, median from X is used.
-
-    device : str, default='cuda'
-        Device on which the model should run.
-
-    return_data : bool, default=False
-        If True, returns (lat_vals, alt_vals, field_grid) instead of just plotting.
-
-    Returns
-    -------
-    Optional
-        lat_vals : np.ndarray
-            Latitude grid values.
-
-        alt_vals : np.ndarray
-            Altitude grid values.
-
-        field_grid : np.ndarray
-            Predicted τ_R or D values over the grid.
-
     """
+    Plot a spatial field (τ_R or D) from a PINN model, optionally using tropopause features.
+    """
+
     model.eval()
 
-    # Extract latitude and altitude bounds from dataset
+    # Extract lat/alt bounds
     lat_min, lat_max = np.min(X[:, 0]), np.max(X[:, 0])
     alt_min, alt_max = np.min(X[:, 1]), np.max(X[:, 1])
 
@@ -148,24 +105,31 @@ def plot_field_from_data(
     alt_vals = np.linspace(alt_min, alt_max, grid_res[1])
     lat_grid, alt_grid = np.meshgrid(lat_vals, alt_vals, indexing='ij')
 
-    # Flatten grid and fill fixed dimensions
     lat_flat = lat_grid.flatten()
     alt_flat = alt_grid.flatten()
 
+    # Default values if not provided
     time_fixed = time_value if time_value is not None else np.median(X[:, 2])
     source_fixed = source_value if source_value is not None else np.median(X[:, 3])
     gamma_fixed = gamma_value if gamma_value is not None else np.median(X[:, 4])
 
+    # Construct base input
     time_array = np.full_like(lat_flat, time_fixed)
     source_array = np.full_like(lat_flat, source_fixed)
     gamma_array = np.full_like(lat_flat, gamma_fixed)
 
-    # Combine and normalize inputs
-    X_raw = np.stack([lat_flat, alt_flat, time_array, source_array, gamma_array], axis=1)
-    X_norm = scaler_X.transform(X_raw)
-    X_tensor = torch.tensor(X_norm, dtype=torch.float32).to(device)
+    X_base = np.stack([lat_flat, alt_flat, time_array, source_array, gamma_array], axis=1)
 
-    # Forward pass
+    # Optionally extend with tropopause features
+    if use_tropopause_features:
+        X_full, _ = extend_with_tropopause_features(X_base, csv_path=tp_csv_path)
+    else:
+        X_full = X_base
+
+    # Scale and run model
+    X_scaled = scaler_X.transform(X_full)
+    X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
+
     with torch.no_grad():
         tau_R_pred, D_pred = model(X_tensor)
 
@@ -178,11 +142,9 @@ def plot_field_from_data(
     plt.xlabel("Latitude [°]")
     plt.ylabel("Altitude [km]")
 
-    # Format time from ns float → YYYY-MM
-    time_label = float_to_year_month(time_fixed) if time_fixed>1e4 else time_fixed
-    
+    time_label = float_to_year_month(time_fixed) if time_fixed > 1e4 else time_fixed
     plt.title(
-        rf"Predicted {field} | time={time_label}, source={int(source_fixed)}, $\Gamma_{{EI}}$={gamma_fixed:.2e}"
+        rf"Predicted {field} | time={time_label}, source={int(source_fixed)}, $\Gamma_{{EI}}$={gamma_fixed:.2f}"
     )
     plt.colorbar(contour, label=field)
     plt.tight_layout()
@@ -190,7 +152,6 @@ def plot_field_from_data(
 
     if return_data:
         return lat_vals, alt_vals, field_grid
-
 
 def plot_training_progress(
     train_losses: list[float],
