@@ -1,4 +1,6 @@
 import os
+import glob
+import pandas as pd
 from datetime import datetime
 
 import joblib
@@ -19,7 +21,6 @@ def datetime64_to_year_fraction(t):
         Array of fractional years (e.g. 2004.04).
 
     """
-    import pandas as pd
 
     t = pd.to_datetime(t)
     year = t.year
@@ -29,36 +30,106 @@ def datetime64_to_year_fraction(t):
 
     return year + fraction.values
 
-def load_latest_checkpoint(model, optimizer=None, checkpoint_dir="checkpoints"):
+def load_checkpoint(model, checkpoint_path, device='cuda', optimizer=None, return_scaler=False):
+    """
+    Load model and optimizer state from checkpoint. Optionally return stored scaler.
 
-    import glob
+    Args:
+        model: PyTorch model to load.
+        checkpoint_path: Path to .pth file.
+        device: 'cuda' or 'cpu'.
+        optimizer: (Optional) optimizer to load state into.
+        return_scaler: If True, return the stored scaler (if present).
 
-    checkpoint_files = sorted(glob.glob(f"{checkpoint_dir}/pinn_checkpoint_*.pth"))
-    if not checkpoint_files:
-        print("No checkpoint found.")
-        return
+    Returns:
+        scaler if return_scaler=True and scaler is in checkpoint; otherwise None.
+    """
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    latest_checkpoint = checkpoint_files[-1]
-    checkpoint = torch.load(latest_checkpoint)
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
     model.load_state_dict(checkpoint["model_state_dict"])
+
     if optimizer and "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        
+
+    print(f"Loaded checkpoint from {checkpoint_path}")
+
+    if return_scaler:
+        return checkpoint.get("scaler", None)
+
+def load_latest_checkpoint(model, device='cuda', optimizer=None, checkpoint_dir=None, return_scaler=False):
+    """
+    Load the latest checkpoint from the specified directory.
+
+    Args:
+        model: PyTorch model to load state into.
+        device: Device to load model onto ('cuda' or 'cpu').
+        optimizer: (Optional) Optimizer to load state into.
+        checkpoint_dir: Path to checkpoint directory. Defaults to project-root/models/checkpoints.
+        return_scaler: If True, return the scaler saved with the checkpoint (if available).
+
+    Returns:
+        scaler if return_scaler=True and present in checkpoint, otherwise None.
+    """
+    if checkpoint_dir is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        checkpoint_dir = os.path.join(project_root, "models", "checkpoints")
+
+    checkpoint_files = sorted(glob.glob(os.path.join(checkpoint_dir, "pinn_checkpoint_*.pth")))
+    if not checkpoint_files:
+        print("No checkpoint found in", checkpoint_dir)
+        return None if return_scaler else None
+
+    latest_checkpoint = checkpoint_files[-1]
+    checkpoint = torch.load(latest_checkpoint, map_location=torch.device(device), weights_only=False)
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    if optimizer and "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
     print(f"Loaded checkpoint from {latest_checkpoint}")
 
-def save_checkpoint(model, optimizer, checkpoint_dir="checkpoints"):
+    if return_scaler:
+        return checkpoint.get("scaler", None)
 
-    from datetime import datetime
+def save_checkpoint(model, optimizer, name=None, scaler=None, checkpoint_dir=None):
+    """
+    Save model, optimizer, and optionally scaler to a checkpoint file.
 
-    timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
-    checkpoint_path = f"{checkpoint_dir}/pinn_checkpoint_{timestamp}.pth"
-    torch.save({
+    Args:
+        model: PyTorch model to save.
+        optimizer: Optimizer to save.
+        name: (Optional) Filename to use for the checkpoint (e.g., 'pinn_best.pth').
+              If not provided, a timestamped filename will be used.
+        scaler: (Optional) Scikit-learn scaler or other serializable object to include.
+        checkpoint_dir: (Optional) Directory to save to. Defaults to project-root/models/checkpoints.
+    """
+    if checkpoint_dir is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        checkpoint_dir = os.path.join(project_root, "models", "checkpoints")
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    if name is None:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        name = f"pinn_checkpoint_{timestamp}.pth"
+
+    checkpoint_path = os.path.join(checkpoint_dir, name)
+
+    checkpoint = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "timestamp": timestamp,
-    }, checkpoint_path)
-        
-    print(f"Saved latest checkpoint in {checkpoint_dir}")
+        "timestamp": datetime.now().strftime('%Y%m%d_%H%M%S'),
+    }
+
+    if scaler is not None:
+        checkpoint["scaler"] = scaler
+
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Saved checkpoint to {checkpoint_path}")
 
 def save_scaler(scaler, scaler_dir="checkpoints", prefix="scaler"):
     """Saves a fitted sklearn scaler (e.g., MinMaxScaler) to disk with a timestamped filename.
