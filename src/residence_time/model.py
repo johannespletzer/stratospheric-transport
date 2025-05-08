@@ -1,86 +1,82 @@
+import torch
 import torch.nn as nn
 
-
 class PINNModel(nn.Module):
-    """Physics-Informed Neural Network (PINN) model for predicting residence time (τ_R)
-    and optionally effective diffusivity (D), based on input features such as latitude,
-    altitude, time, source type, and mean age of air (Γ_EI).
-
-    The model has two separate branches:
-    - τ_R branch: always active
-    - D branch: only active if include_D=True
-
-    Output predictions are passed through a softplus activation to ensure positivity.
+    """Physics-Informed Neural Network (PINN) model for predicting τ_R (and optionally D),
+    with optional tropopause-based input features.
 
     Parameters
     ----------
     input_dim : int, default=5
-        Number of input features. Typically: [lat, alt, time, source, Γ_EI].
+        Number of base input features: [lat, alt, time, source, Γ_EI].
 
     hidden_dim : int, default=64
-        Number of hidden units per layer.
+        Hidden layer width.
 
     hidden_layers : int, default=3
-        Number of hidden layers in each branch.
+        Number of hidden layers.
 
     include_D : bool, default=True
-        Whether to include the branch that predicts effective diffusivity D.
-        If False, the model only predicts τ_R.
+        Whether to include the D output branch.
+
+    use_tropopause_features : bool, default=False
+        If True, the model expects 3 additional input features:
+        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
 
     """
-
-    def __init__(self, input_dim: int = 5, hidden_dim: int = 64, hidden_layers: int = 3, include_D: bool = True):
-
+    def __init__(
+        self,
+        input_dim: int = 5,
+        hidden_dim: int = 64,
+        hidden_layers: int = 3,
+        include_D: bool = True,
+        use_tropopause_features: bool = False,
+    ):
         super().__init__()
         self.include_D = include_D
+        self.use_tropopause_features = use_tropopause_features
 
-        # Define τ_R branch (shared architecture: MLP with Tanh)
+        # Adjust input dimension if tropopause features are included
+        effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
+
+        # τ_R branch
         layers_tau = []
-        in_dim = input_dim
+        in_dim = effective_input_dim
         for _ in range(hidden_layers):
             layers_tau.append(nn.Linear(in_dim, hidden_dim))
-            layers_tau.append(nn.Tanh())  # non-linear activation for hidden layers
+            layers_tau.append(nn.Tanh())
             in_dim = hidden_dim
-        layers_tau.append(nn.Linear(in_dim, 1))  # output layer for tau_R
+        layers_tau.append(nn.Linear(in_dim, 1))
         self.tauR_branch = nn.Sequential(*layers_tau)
-        
-        # Define the D branch (MLP), if enabled
+
+        # D branch
         if include_D:
             layers_D = []
-            in_dim = input_dim
+            in_dim = effective_input_dim
             for _ in range(hidden_layers):
                 layers_D.append(nn.Linear(in_dim, hidden_dim))
                 layers_D.append(nn.Tanh())
                 in_dim = hidden_dim
-            layers_D.append(nn.Linear(in_dim, 1))  # output layer for D
+            layers_D.append(nn.Linear(in_dim, 1))
             self.D_branch = nn.Sequential(*layers_D)
         else:
             self.D_branch = None
-        
-        # Softplus activation for outputs to ensure positivity
+
         self.softplus = nn.Softplus()
 
     def forward(self, x):
-        """Forward pass: returns (tau_R_pred, D_pred).
-        If include_D=False, D_pred will be None.
+        """
+        Forward pass through τ_R and optionally D branch.
 
         Parameters
         ----------
-        x : torch.Tensor [N, input_dim]
-            Input tensor with features [lat, alt, time, source, Γ_EI].
+        x : torch.Tensor [N, input_dim + 3 if use_tropopause_features]
 
         Returns
         -------
         tau_R_pred : torch.Tensor [N, 1]
-            Predicted residence time (τ_R), always returned.
-
         D_pred : torch.Tensor [N, 1] or None
-            Predicted diffusivity (D), or None if include_D=False.
-
         """
-        # Compute tau_R prediction
         tau_R_pred = self.softplus(self.tauR_branch(x))
-        # Compute D prediction if applicable
         D_pred = self.softplus(self.D_branch(x)) if self.include_D else None
-            
         return tau_R_pred, D_pred
