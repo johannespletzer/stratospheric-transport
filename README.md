@@ -1,6 +1,6 @@
 # Modeling of Stratospheric Transport
 
-Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network (PINN) to model **residence time (τ_R)** in the stratosphere using estimates of the **mean age of air (Γ)** from satellite, in-situ, and model datasets.
+Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network to model **residence time (τ_R)** in the stratosphere using estimates of the **mean age of air (Γ)** from satellite, in-situ, and model datasets. Tropopause reanalysis data can be used as additional features.
 
 The network is based on:
 - Supervised learning with τ_R observations
@@ -11,15 +11,21 @@ The network is based on:
 ## Project Highlights
 
 - Learns spatial and temporal variation of τ_R
-- Uses magnitude of Γ (mean age of air) as an input feature
-- Optional prediction of diffusivity (D)
-- Input features lat, alt, time, source and Γ
+- Optional prediction of physical parameter D (diffusivity)
+- Input features lat, alt, time, source and Γ (Age of air)
+- Tropopause height in tropics, southern or northern Hemisphere are optional features
 
 ---
 
 ## Data Preparation
 
-Download tropopause parameters for training. Consider using the --output parameter to define a download directory due to the data size.
+Download age of air data for training from satellite and in-situ measurements.
+
+```python
+python scripts/download_age_of_air_data.py --output data/age_of_air
+```
+
+Download tropopause parameters for training. This is optional. Consider using the --output parameter to define a download directory due to the data size.
 
 ```python
 python scripts/download_and_process_era5.py --start-year 1980 --end-year 2018
