@@ -34,7 +34,7 @@ def datetime64_to_year_fraction(
     start_of_year = pd.to_datetime(year.astype(str))
     start_of_next_year = pd.to_datetime((year + 1).astype(str))
     fraction = (t - start_of_year) / (start_of_next_year - start_of_year)
-    return year + fraction.values
+    return (year + fraction.values).to_numpy()
 
 
 def load_checkpoint(
