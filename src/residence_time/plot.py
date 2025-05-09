@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from residence_time.data import extend_with_tropopause_features
 
 def plot_physics_residual(
     model,
