@@ -57,14 +57,12 @@ line-ending = "auto"
 [tool.ruff.lint]
 select = [
     "E", "F", "I", "B", "UP", "C90",
-    "N",  # Naming
-    "D",  # Docstring style
-    "ANN"  # Type hints
+    "N",
+    "D",
+    "ANN"
 ]
 ignore = [
     "E501",  # line too long (if using black)
-    "D100",  # missing docstring in public module (optional)
-    "D104",  # missing docstring in package (optional)
-    "ANN101",  # missing type annotation for self (optional)
-    "ANN102",  # missing type annotation for cls (optional)
+    "D100",  # missing docstring in public module
+    "D104",  # missing docstring in package
 ]
