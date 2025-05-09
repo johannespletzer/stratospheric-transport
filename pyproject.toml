@@ -62,9 +62,13 @@ select = [
     "ANN"
 ]
 ignore = [
+    "ANN204",  # missing return type annotation
     "E501",  # line too long (if using black)
     "D100",  # missing docstring in public module
     "D104",  # missing docstring in package
+    "D107",  # missing docstring in __init__
+    "N802",  # ignore capital variable names
     "N803",  # ignore capital variable names
+    "N806",  # ignore capital variable names
     "N806",  # ignore capital variable names
 ]

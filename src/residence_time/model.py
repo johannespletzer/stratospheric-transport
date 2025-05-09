@@ -1,23 +1,28 @@
+from typing import Optional, Tuple
+
+import torch
 import torch.nn as nn
 
 
 class PINNModel(nn.Module):
-    """Physics-Informed Neural Network (PINN) model for predicting τ_R (and optionally D),
-    with optional tropopause-based input features.
+    """Physics-Informed Neural Network (PINN) model for predicting τ_R (and optionally D).
+
+    This model optionally uses tropopause-based input features and supports a dual-branch
+    architecture for τ_R and effective diffusivity D.
 
     Parameters
     ----------
     input_dim : int, default=5
-        Number of base input features: [lat, alt, time, source, Γ_EI].
+        Number of base input features: [lat, alt, time, source, G_EI].
 
     hidden_dim : int, default=64
-        Hidden layer width.
+        Number of hidden units per hidden layer.
 
     hidden_layers : int, default=3
-        Number of hidden layers.
+        Number of hidden layers in each branch.
 
     include_D : bool, default=True
-        Whether to include the D output branch.
+        Whether to include a separate output branch for diffusivity D.
 
     use_tropopause_features : bool, default=False
         If True, the model expects 3 additional input features:
@@ -40,7 +45,7 @@ class PINNModel(nn.Module):
         # Adjust input dimension if tropopause features are included
         effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
 
-        # τ_R branch
+        # t_R branch
         layers_tau = []
         in_dim = effective_input_dim
         for _ in range(hidden_layers):
@@ -65,17 +70,21 @@ class PINNModel(nn.Module):
 
         self.softplus = nn.Softplus()
 
-    def forward(self, x):
-        """Forward pass through τ_R and optionally D branch.
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """Forward pass through the t_R and optionally D output branches.
 
         Parameters
         ----------
-        x : torch.Tensor [N, input_dim + 3 if use_tropopause_features]
+        x : torch.Tensor
+            Input tensor of shape [N, input_dim + 3 if tropopause features are used].
 
         Returns
         -------
-        tau_R_pred : torch.Tensor [N, 1]
-        D_pred : torch.Tensor [N, 1] or None
+        tau_R_pred : torch.Tensor
+            Predicted residence time t_R, shape [N, 1].
+
+        D_pred : torch.Tensor or None
+            Predicted diffusivity D, shape [N, 1], or None if include_D is False.
 
         """
         tau_R_pred = self.softplus(self.tauR_branch(x))

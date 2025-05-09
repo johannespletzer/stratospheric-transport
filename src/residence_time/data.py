@@ -10,9 +10,9 @@ from residence_time.utils import datetime64_to_year_fraction
 
 
 def load_insitu_dataset(filepath):
-    """Loads balloon/aircraft (in-situ) age-of-air observations from NetCDF.
+    """Load balloon/aircraft (in-situ) age-of-air observations from NetCDF.
 
-    Prefers SF6 data where available, falls back to CO2 otherwise.
+    Prefer SF6 data where available, falls back to CO2 otherwise.
 
     Parameters
     ----------
@@ -68,7 +68,7 @@ def load_insitu_dataset(filepath):
 
 
 def load_satellite_dataset(filepath, time_range=None):
-    """Loads satellite-based age-of-air observations from NetCDF (e.g. ACE-FTS or MIPAS).
+    """Load satellite-based age-of-air observations from NetCDF (e.g. ACE-FTS or MIPAS).
 
     Parameters
     ----------
@@ -119,7 +119,7 @@ def load_satellite_dataset(filepath, time_range=None):
 
 
 def load_model_dataset(filepath, time_range=None):
-    """Loads model-simulated mean age of air from NetCDF and converts pressure levels to km.
+    """Load model-simulated mean age of air from NetCDF and convert pressure levels to km.
 
     Parameters
     ----------
@@ -178,7 +178,7 @@ def load_all_data_combined(
     model_paths=None,
     time_range: tuple[str, str] = None
     ):
-    """Loads and concatenates multiple datasets into one training-ready array.
+    """Load and concatenate multiple datasets into one training-ready array.
 
     Parameters
     ----------
@@ -224,7 +224,7 @@ def load_all_data_combined(
 
 
 def load_tau_R(filename, X_obs):
-    """Interpolates τ_R (residence time) from model grid to observation coordinates.
+    """Interpolate τ_R (residence time) from model grid to observation coordinates.
 
     Parameters
     ----------
@@ -252,7 +252,7 @@ def load_tau_R(filename, X_obs):
     return tau_R_interp, mask_valid
 
 def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tuple[np.ndarray, np.ndarray]:
-    """Extends a [N, 5] input array X with 3 tropopause features and returns an uncertainty weight vector W.
+    """Extend a [N, 5] input array X with 3 tropopause features and return an uncertainty weight vector W.
 
     Parameters
     ----------
