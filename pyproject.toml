@@ -65,4 +65,5 @@ ignore = [
     "E501",  # line too long (if using black)
     "D100",  # missing docstring in public module
     "D104",  # missing docstring in package
+    "N806",  # ignore capital variable names
 ]
