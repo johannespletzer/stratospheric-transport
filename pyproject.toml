@@ -9,6 +9,7 @@ description = "Neural network modeling for mean age of air and residence time"
 authors = [
     { name="Johannes Pletzer"}
 ]
+
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
@@ -19,9 +20,51 @@ dependencies = [
     "xarray",
     "netCDF4",
     "pandas",
-    "aerocalc3"
+    "aerocalc3",
+    "pytest",
+    "requests",
+    "ruff",
+    "argparse",
+    "joblib",
+    "datetime",
+    "bs4",
+    "typing"
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["residence_time*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+fix = true
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".ruff_cache",
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "B", "UP", "C90",
+    "N",  # Naming
+    "D",  # Docstring style
+    "ANN"  # Type hints
+]
+ignore = [
+    "E501",  # line too long (if using black)
+    "D100",  # missing docstring in public module (optional)
+    "D104",  # missing docstring in package (optional)
+    "ANN101",  # missing type annotation for self (optional)
+    "ANN102",  # missing type annotation for cls (optional)
+]
