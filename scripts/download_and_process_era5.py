@@ -1,13 +1,3 @@
-"""
-Download and concatenate ERA5 tropopause data (low resolution) from the Jülich SLCS server.
-
-This script:
-- Downloads NetCDF files by year (based on --start-year and --end-year),
-- Stores them in a specified directory (--output),
-- Concatenates them into a single dataset,
-- Saves the result as 'era5_tropopause_combined.nc' in that same directory.
-"""
-
 import argparse
 import os
 
@@ -22,7 +12,15 @@ BASE_URL = "https://datapub.fz-juelich.de/slcs/tropopause/data/v1/era5low/"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "../", "data", "tropopause")
 
-def main(start_year: int, end_year: int, download_dir: str):
+def main(start_year: int, end_year: int, download_dir: str) -> None:
+    """Download and concatenate ERA5 tropopause data (low resolution) from the Jülich SLCS server.
+    
+    This script:
+    - Downloads NetCDF files by year (based on --start-year and --end-year),
+    - Stores them in a specified directory (--output),
+    - Concatenates them into a single dataset,
+    - Saves the result as 'era5_tropopause_combined.nc' in that same directory.
+    """
     os.makedirs(download_dir, exist_ok=True)
     output_file = os.path.join(download_dir, "era5_tropopause_combined.nc")
 

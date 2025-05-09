@@ -1,30 +1,30 @@
-"""
-Post-process ERA5 tropopause data to extract monthly features for model training.
-
-References:
-- Hoffmann & Spang (2022), ACP, https://doi.org/10.5194/acp-22-4019-2022
-- Zou et al. (2023), Front. Earth Sci, https://doi.org/10.3389/feart.2023.1177502
-- Hoffmann & Spang (2021), Data Repository, https://doi.org/10.26165/JUELICH-DATA/UBNGI2
-
-This script:
-- Loads the concatenated ERA5 tropopause dataset
-- Computes monthly means, standard deviations, and derived features
-- Exports results as a CSV
-"""
-
-import os
-import shutil
 import argparse
+import os
+from typing import Union
+
 import numpy as np
 import xarray as xr
 from dask.distributed import Client
-from typing import Union
+
 
 def coefficient_of_variation(x: Union[np.ndarray, xr.DataArray], axis: int = 0) -> Union[float, np.ndarray]:
     """Compute coefficient of variation along a given axis."""
     return np.std(x, axis=axis) / np.mean(x, axis=axis)
 
-def main(infile: str, outfile: str):
+def main(infile: str, outfile: str) -> None:
+    """Post-process ERA5 tropopause data to extract monthly features for model training.
+    
+    References:
+    - Hoffmann & Spang (2022), ACP, https://doi.org/10.5194/acp-22-4019-2022
+    - Zou et al. (2023), Front. Earth Sci, https://doi.org/10.3389/feart.2023.1177502
+    - Hoffmann & Spang (2021), Data Repository, https://doi.org/10.26165/JUELICH-DATA/UBNGI2
+    
+    This script:
+    - Loads the concatenated ERA5 tropopause dataset
+    - Computes monthly means, standard deviations, and derived features
+    - Exports results as a CSV
+    
+    """
     print(f"Loading data from {infile}")
 
     # Setup Dask
@@ -32,7 +32,7 @@ def main(infile: str, outfile: str):
     nworker = 1
     threads = ncpu // nworker
     mem_limit = 20 / nworker
-    client = Client(
+    Client(
         processes=False,
         threads_per_worker=threads,
         n_workers=nworker,

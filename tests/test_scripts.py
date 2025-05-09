@@ -1,9 +1,30 @@
 import os
 import subprocess
 import tempfile
+from typing import List
 
-def run_script(script_path, args):
-    """Helper to run a script and capture errors."""
+
+def run_script(script_path: str, args: List[str]) -> None:
+    """Run a Python script with the given arguments and assert success.
+
+    Parameters
+    ----------
+    script_path : str
+        Path to the Python script to execute.
+
+    args : List[str]
+        List of command-line arguments to pass to the script.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If the script returns a non-zero exit code.
+
+    """
     result = subprocess.run(
         ["python", script_path] + args,
         capture_output=True,
@@ -13,28 +34,31 @@ def run_script(script_path, args):
     print(result.stderr)
     assert result.returncode == 0, f"{script_path} failed"
 
-def test_download_age_of_air_data():
+def test_download_age_of_air_data() -> None:
+    """Download file and assert nc files were found."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        script = "scripts/download_age_of_air_data.py"  # or download_age_of_air.py if renamed
+        script = "scripts/download_age_of_air_data.py"
         run_script(script, ["--output", tmpdir])
 
         # Recursively check for .nc files
         found_nc = False
-        for root, _, files in os.walk(tmpdir):
+        for _, _, files in os.walk(tmpdir):
             if any(fname.endswith(".nc") for fname in files):
                 found_nc = True
                 break
 
         assert found_nc, "No .nc files found after extraction"
 
-def test_download_and_process_era5():
+def test_download_and_process_era5() -> None:
+    """Download era5 tropopause features and assert files were combined to a single nc file."""
     with tempfile.TemporaryDirectory() as tmpdir:
         script = "scripts/download_and_process_era5.py"
         run_script(script, ["--start-year", "2000", "--end-year", "2000", "--output", tmpdir])
         combined_path = os.path.join(tmpdir, "era5_tropopause_combined.nc")
         assert os.path.exists(combined_path)
 
-def test_process_tropopause_features():
+def test_process_tropopause_features() -> None:
+    """Extract specific tropopause features on monthly basis and assert write to file works."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # First download ERA5 to get a valid input file
         era5_script = "scripts/download_and_process_era5.py"

@@ -1,5 +1,4 @@
-"""
-Download and extract Age of Air observational data from Zenodo.
+"""Download and extract Age of Air observational data from Zenodo.
 
 Data Source:
 https://zenodo.org/records/13906743
@@ -8,14 +7,32 @@ This script downloads the ZIP archive containing satellite and in-situ age-of-ai
 and extracts its contents to a specified directory.
 """
 
-import os
 import argparse
-import requests
+import os
 import zipfile
+
+import requests
 
 ZENODO_URL = "https://zenodo.org/records/13906743/files/Age_Data_v2.zip?download=1"
 
 def download_and_extract_age_data(output_dir: str) -> None:
+    """Download and extract the Age of Air dataset from Zenodo.
+
+    The function downloads a ZIP archive containing satellite and in-situ 
+    observational age-of-air data, extracts its contents into the specified 
+    output directory, and removes the ZIP file afterward.
+
+    Parameters
+    ----------
+    output_dir : str
+        Path to the directory where the ZIP file should be extracted.
+        If the directory does not exist, it will be created.
+
+    Returns
+    -------
+    None
+
+    """
     os.makedirs(output_dir, exist_ok=True)
     zip_path = os.path.join(output_dir, "Age_Data_v2.zip")
 
@@ -32,7 +49,18 @@ def download_and_extract_age_data(output_dir: str) -> None:
     os.remove(zip_path)  # clean up ZIP after extraction
     print(f"Done. Data extracted to {output_dir}")
 
-def main():
+def main() -> None:
+    """Command-line interface for downloading and extracting Age of Air data.
+
+    Parses the --output argument, determines the output directory (defaulting to 
+    project-root/data/age_of_air), and downloads + extracts the Zenodo dataset 
+    into that location using `download_and_extract_age_data`.
+
+    Returns
+    -------
+    None
+
+    """
     parser = argparse.ArgumentParser(description="Download Age of Air observational data from Zenodo.")
     
     # Default to project-root/data/aoa/
