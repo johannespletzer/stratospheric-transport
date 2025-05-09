@@ -19,7 +19,7 @@ The network is based on:
 
 ## Installation and code changes
 
-Install the package:
+Install the package
 
 ```bash
 pip install -e .
