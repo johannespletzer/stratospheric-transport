@@ -1,16 +1,13 @@
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import MinMaxScaler
+
 from residence_time.model import PINNModel
 from residence_time.train import create_train_val_loaders, scale_variables
 from residence_time.utils import datetime64_to_year_fraction
 
 
 def test_model_forward_pass() -> None:
-    """
-    Test that the PINN model forward method returns correct shapes.
-    """
+    """Test that the PINN model forward method returns correct shapes."""
     model = PINNModel(input_dim=5, include_D=True)
     x = torch.rand(16, 5)
     tau, D = model(x)
@@ -19,9 +16,7 @@ def test_model_forward_pass() -> None:
 
 
 def test_model_forward_without_D() -> None:
-    """
-    Test PINN model forward when include_D=False.
-    """
+    """Test PINN model forward when include_D=False."""
     model = PINNModel(input_dim=5, include_D=False)
     x = torch.rand(16, 5)
     tau, D = model(x)
@@ -30,9 +25,7 @@ def test_model_forward_without_D() -> None:
 
 
 def test_train_val_loader_shapes() -> None:
-    """
-    Ensure that dataloaders return batches with correct shapes.
-    """
+    """Ensure that dataloaders return batches with correct shapes."""
     N = 100
     X = np.random.rand(N, 5)
     Gamma = np.random.rand(N)
@@ -51,9 +44,7 @@ def test_train_val_loader_shapes() -> None:
 
 
 def test_scale_variables_shape() -> None:
-    """
-    Verify that scaled output has correct shape and type.
-    """
+    """Verify that scaled output has correct shape and type."""
     X = np.random.rand(100, 5)
     X_scaled, scaler = scale_variables(X)
     assert X_scaled.shape == X.shape
@@ -61,9 +52,7 @@ def test_scale_variables_shape() -> None:
 
 
 def test_datetime64_to_year_fraction_output() -> None:
-    """
-    Check conversion from datetime64 to fractional year.
-    """
+    """Check conversion from datetime64 to fractional year."""
     dates = np.array(["2000-01-01", "2001-07-01"], dtype="datetime64")
     result = datetime64_to_year_fraction(dates)
     assert isinstance(result, np.ndarray)
