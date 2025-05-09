@@ -1,17 +1,74 @@
+from typing import List, Optional, Tuple
+
+import numpy as np
 import torch
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from torch.nn import Module
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader, TensorDataset
+
+
+def make_loader(
+    X: np.ndarray,
+    Gamma: np.ndarray,
+    W: np.ndarray,
+    tau: np.ndarray,
+    batch_size: int,
+    device: str
+) -> DataLoader:
+    """Convert input arrays into a PyTorch DataLoader for training or validation.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Input features of shape [N, D].
+
+    Gamma : np.ndarray
+        Mean age of air (Γ_EI), shape [N,].
+
+    W : np.ndarray
+        Uncertainty weights for physics loss, shape [N,].
+
+    tau : np.ndarray
+        Target residence time values (τ_R), shape [N,].
+
+    batch_size : int
+        Number of samples per batch in the DataLoader.
+
+    device : str
+        Device to move tensors to ('cuda' or 'cpu').
+
+    Returns
+    -------
+    DataLoader
+        PyTorch DataLoader containing (X, Γ, W, τ_R) batches.
+
+    """
+    X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
+    Gamma_tensor = torch.tensor(Gamma, dtype=torch.float32).unsqueeze(1).to(device)
+    W_tensor = torch.tensor(W, dtype=torch.float32).unsqueeze(1).to(device)
+    tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device)
+
+    dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
 def create_train_val_loaders(
-    X,
-    Gamma,
-    W,
-    tau_R=None,
-    batch_size=256,
-    val_split=0.2,
-    device='cuda'
-    ):
-    """Splits data into training and validation sets and returns DataLoaders
-    with (X, Gamma, W, tau_R) tuples for PINN training.
+    X: np.ndarray,
+    Gamma: np.ndarray,
+    W: np.ndarray,
+    tau_R: Optional[np.ndarray] = None,
+    batch_size: int = 256,
+    val_split: float = 0.2,
+    device: str = 'cuda'
+) -> Tuple[DataLoader, DataLoader]:
+    """Split data into training and validation sets and return DataLoaders.
+
+    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples 
+    for use in training a PINN model. If no tau_R targets are provided, the 
+    function fills them with NaNs for compatibility.
 
     Parameters
     ----------
@@ -46,10 +103,6 @@ def create_train_val_loaders(
         PyTorch DataLoader for validation data.
 
     """
-    import numpy as np
-    from sklearn.model_selection import train_test_split
-    from torch.utils.data import DataLoader, TensorDataset
-
     if tau_R is not None:
         X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
             X, Gamma, W, tau_R, test_size=val_split, random_state=42
@@ -61,30 +114,23 @@ def create_train_val_loaders(
         tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
         tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
 
-    def make_loader(X, Gamma, W, tau):
-        X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
-        Gamma_tensor = torch.tensor(Gamma, dtype=torch.float32).unsqueeze(1).to(device)
-        W_tensor = torch.tensor(W, dtype=torch.float32).unsqueeze(1).to(device)
-        tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device)
-        dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    return make_loader(X_train, Gamma_train, W_train, tau_train), \
-           make_loader(X_val, Gamma_val, W_val, tau_val)
+    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
+           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
 
 
-def scale_variables(X_obs):
-
-    from sklearn.preprocessing import MinMaxScaler
-
+def scale_variables(X_obs: np.ndarray) -> Tuple[np.ndarray, MinMaxScaler]:
+    """Scale features for model training."""
     scaler_X = MinMaxScaler()
     X_scaled = scaler_X.fit_transform(X_obs)
 
     return X_scaled, scaler_X
 
 
-def scale_variables_columnwise(X_obs, scaler='MinMaxScaler'):
-    """Scales selected columns of X_obs using StandardScaler, and leaves others untouched.
+def scale_variables_columnwise(
+    X_obs: np.ndarray,
+    scaler: str = 'MinMaxScaler'
+) -> Tuple[np.ndarray, ColumnTransformer]:
+    """Scale selected columns of X_obs using StandardScaler, and leaves others untouched.
 
     Columns:
     [0] Latitude
@@ -115,9 +161,17 @@ def scale_variables_columnwise(X_obs, scaler='MinMaxScaler'):
     return X_scaled, scaler_X
 
 
-def train_model(model, train_loader, val_loader, optimizer, n_epochs=500,
-                              lambda_phys_start=1.0, lambda_sup_start=1.0, decay_rate=0.95):
-    """Trains a PINN model using both physics-based and supervised losses.
+def train_model(
+    model: Module,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    optimizer: Optimizer,
+    n_epochs: int = 500,
+    lambda_phys_start: float = 1.0,
+    lambda_sup_start: float = 1.0,
+    decay_rate: float = 0.95
+) -> Tuple[List[float], List[float], List[float], List[float]]:
+    """Train a PINN model using both physics-based and supervised losses.
 
     Parameters
     ----------
