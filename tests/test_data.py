@@ -1,13 +1,13 @@
+import glob
 import os
 import tempfile
 import zipfile
-import glob
 
 import numpy as np
 import pytest
 import requests
 
-from residence_time.data import load_satellite_dataset, load_insitu_dataset
+from residence_time.data import load_insitu_dataset, load_satellite_dataset
 
 ZENODO_URL = "https://zenodo.org/records/13906743/files/Age_Data_v2.zip?download=1"
 

@@ -1,4 +1,5 @@
 import os
+
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -251,8 +252,7 @@ def load_tau_R(filename, X_obs):
     return tau_R_interp, mask_valid
 
 def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Extends a [N, 5] input array X with 3 tropopause features and returns an uncertainty weight vector W.
+    """Extends a [N, 5] input array X with 3 tropopause features and returns an uncertainty weight vector W.
 
     Parameters
     ----------
@@ -270,6 +270,7 @@ def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tupl
     W : np.ndarray
         Uncertainty weights derived from 1 / (std² + ε) for the 3 added features.
         Shape: [N,]
+
     """
     if csv_path is None:
         this_dir = os.path.dirname(os.path.abspath(__file__))

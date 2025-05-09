@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile
 
+
 def run_script(script_path, args):
     """Helper to run a script and capture errors."""
     result = subprocess.run(

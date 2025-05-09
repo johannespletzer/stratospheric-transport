@@ -1,5 +1,5 @@
-import torch
 import torch.nn as nn
+
 
 class PINNModel(nn.Module):
     """Physics-Informed Neural Network (PINN) model for predicting τ_R (and optionally D),
@@ -24,6 +24,7 @@ class PINNModel(nn.Module):
         [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
 
     """
+
     def __init__(
         self,
         input_dim: int = 5,
@@ -65,8 +66,7 @@ class PINNModel(nn.Module):
         self.softplus = nn.Softplus()
 
     def forward(self, x):
-        """
-        Forward pass through τ_R and optionally D branch.
+        """Forward pass through τ_R and optionally D branch.
 
         Parameters
         ----------
@@ -76,6 +76,7 @@ class PINNModel(nn.Module):
         -------
         tau_R_pred : torch.Tensor [N, 1]
         D_pred : torch.Tensor [N, 1] or None
+
         """
         tau_R_pred = self.softplus(self.tauR_branch(x))
         D_pred = self.softplus(self.D_branch(x)) if self.include_D else None

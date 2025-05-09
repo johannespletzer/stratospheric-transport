@@ -1,9 +1,9 @@
-import os
 import glob
-import pandas as pd
+import os
 from datetime import datetime
 
 import joblib
+import pandas as pd
 import torch
 
 
@@ -21,7 +21,6 @@ def datetime64_to_year_fraction(t):
         Array of fractional years (e.g. 2004.04).
 
     """
-
     t = pd.to_datetime(t)
     year = t.year
     start_of_year = pd.to_datetime(year.astype(str))
@@ -31,8 +30,7 @@ def datetime64_to_year_fraction(t):
     return year + fraction.values
 
 def load_checkpoint(model, checkpoint_path, device='cuda', optimizer=None, return_scaler=False):
-    """
-    Load model and optimizer state from checkpoint. Optionally return stored scaler.
+    """Load model and optimizer state from checkpoint. Optionally return stored scaler.
 
     Args:
         model: PyTorch model to load.
@@ -43,6 +41,7 @@ def load_checkpoint(model, checkpoint_path, device='cuda', optimizer=None, retur
 
     Returns:
         scaler if return_scaler=True and scaler is in checkpoint; otherwise None.
+
     """
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -59,8 +58,7 @@ def load_checkpoint(model, checkpoint_path, device='cuda', optimizer=None, retur
         return checkpoint.get("scaler", None)
 
 def load_latest_checkpoint(model, device='cuda', optimizer=None, checkpoint_dir=None, return_scaler=False):
-    """
-    Load the latest checkpoint from the specified directory.
+    """Load the latest checkpoint from the specified directory.
 
     Args:
         model: PyTorch model to load state into.
@@ -71,6 +69,7 @@ def load_latest_checkpoint(model, device='cuda', optimizer=None, checkpoint_dir=
 
     Returns:
         scaler if return_scaler=True and present in checkpoint, otherwise None.
+
     """
     if checkpoint_dir is None:
         this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -95,8 +94,7 @@ def load_latest_checkpoint(model, device='cuda', optimizer=None, checkpoint_dir=
         return checkpoint.get("scaler", None)
 
 def save_checkpoint(model, optimizer, name=None, scaler=None, checkpoint_dir=None):
-    """
-    Save model, optimizer, and optionally scaler to a checkpoint file.
+    """Save model, optimizer, and optionally scaler to a checkpoint file.
 
     Args:
         model: PyTorch model to save.
@@ -105,6 +103,7 @@ def save_checkpoint(model, optimizer, name=None, scaler=None, checkpoint_dir=Non
               If not provided, a timestamped filename will be used.
         scaler: (Optional) Scikit-learn scaler or other serializable object to include.
         checkpoint_dir: (Optional) Directory to save to. Defaults to project-root/models/checkpoints.
+
     """
     if checkpoint_dir is None:
         this_dir = os.path.dirname(os.path.abspath(__file__))

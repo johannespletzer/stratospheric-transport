@@ -1,5 +1,7 @@
 import torch
+
 from residence_time.model import PINNModel
+
 
 def test_pinnmodel_input_shape_without_tropopause():
     """Test PINNModel with default input_dim=5"""

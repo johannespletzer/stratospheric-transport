@@ -4,6 +4,7 @@ import torch
 
 from residence_time.data import extend_with_tropopause_features
 
+
 def plot_physics_residual(
     model,
     dataloader,
@@ -92,10 +93,8 @@ def plot_field_from_data(
     use_tropopause_features: bool = False,
     tp_csv_path: str = None,
 ):
+    """Plot a spatial field (τ_R or D) from a PINN model, optionally using tropopause features.
     """
-    Plot a spatial field (τ_R or D) from a PINN model, optionally using tropopause features.
-    """
-
     model.eval()
 
     # Extract lat/alt bounds
