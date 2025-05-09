@@ -1,4 +1,5 @@
 import os
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -9,24 +10,29 @@ from scipy.interpolate import RegularGridInterpolator
 from residence_time.utils import datetime64_to_year_fraction
 
 
-def load_insitu_dataset(filepath):
+def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load balloon/aircraft (in-situ) age-of-air observations from NetCDF.
 
-    Prefer SF6 data where available, falls back to CO2 otherwise.
+    Prefers SF6-based estimates, falling back to CO2 where needed.
 
     Parameters
     ----------
-    - filepath: path to NetCDF file with in-situ measurements
+    filepath : str
+        Path to NetCDF file with in-situ measurements.
 
     Returns
     -------
-    - X: [N, 5] array with columns [lat, alt, time, source_id=1, mean_age]
-    - Gamma: [N,] mean age (target variable)
-    - W: [N,] inverse variance weights
+    X : np.ndarray
+        Input array [N, 5] with columns [lat, alt, time=0, source_id=1, G].
+
+    Gamma : np.ndarray
+        Mean age values (G), shape [N,].
+
+    W : np.ndarray
+        Inverse variance weights, shape [N,].
 
     """
-    ds = xr.open_dataset(filepath)
-    ds = ds.mean('season')
+    ds = xr.open_dataset(filepath).mean('season')
 
     lat = ds['lat'].values
     alt = ds['Altitude'].values
@@ -37,19 +43,15 @@ def load_insitu_dataset(filepath):
     std_co2 = ds['Mean_Age_CO2_STD'].values
 
     lat_grid, alt_grid = np.meshgrid(lat, alt, indexing='ij')
-    lat_flat = lat_grid.flatten()
-    alt_flat = alt_grid.flatten()
-
-    sf6_flat = sf6.flatten()
-    co2_flat = co2.flatten()
-    std_sf6_flat = std_sf6.flatten()
-    std_co2_flat = std_co2.flatten()
+    lat_flat, alt_flat = lat_grid.flatten(), alt_grid.flatten()
+    sf6_flat, co2_flat = sf6.flatten(), co2.flatten()
+    std_sf6_flat, std_co2_flat = std_sf6.flatten(), std_co2.flatten()
 
     use_sf6 = ~np.isnan(sf6_flat)
     use_co2 = ~use_sf6 & ~np.isnan(co2_flat)
 
     age = np.full_like(sf6_flat, np.nan)
-    std = np.full_like(std_sf6_flat, np.nan)
+    std = np.full_like(sf6_flat, np.nan)
 
     age[use_sf6] = sf6_flat[use_sf6]
     std[use_sf6] = std_sf6_flat[use_sf6]
@@ -67,130 +69,137 @@ def load_insitu_dataset(filepath):
     return X, Gamma, W
 
 
-def load_satellite_dataset(filepath, time_range=None):
-    """Load satellite-based age-of-air observations from NetCDF (e.g. ACE-FTS or MIPAS).
+def load_satellite_dataset(filepath: str, time_range: Optional[Tuple[str, str]] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load satellite-based age-of-air observations from NetCDF.
 
     Parameters
     ----------
-    - filepath: path to satellite NetCDF file with AoA and AoA_STD variables
+    filepath : str
+        Path to satellite NetCDF file with AoA and AoA_STD variables.
+
+    time_range : tuple of str, optional
+        Optional start and end time range (e.g. ("2005", "2020")).
 
     Returns
     -------
-    - X: [N, 5] array with [lat, alt, time, source_id=0, AoA]
-    - Gamma: [N,] AoA values (target variable)
-    - W: [N,] inverse variance weights
+    X : np.ndarray
+        Input array [N, 5] with [lat, alt, time, source_id=0, AoA].
+
+    Gamma : np.ndarray
+        AoA values, shape [N,].
+
+    W : np.ndarray
+        Inverse variance weights, shape [N,].
 
     """
     ds = xr.open_dataset(filepath)
-    ds = ds.where(ds.AoA>=1e-5)
+    ds = ds.where(ds.AoA >= 1e-5)
 
-    # Apply time slicing if requested
-    if time_range is not None:
+    if time_range:
         start, end = time_range
         ds = ds.sel(time=slice(start, end))
 
     lat = ds["lat"].values
     alt = ds["alt"].values
-    time = ds["time"].values
-    time = datetime64_to_year_fraction(time)
+    time = datetime64_to_year_fraction(ds["time"].values)
     age = ds["AoA"].values
     std = ds["AoA_STD"].values
-    sou = np.full_like(age,0)      # source: 0 satellite, 1 in-situ, 2 model
+    sou = np.full_like(age, 0)
 
-    # Create meshgrid
     time_grid, lat_grid, alt_grid = np.meshgrid(time, lat, alt, indexing='ij')
-    lat_flat = lat_grid.flatten()
-    alt_flat = alt_grid.flatten()
-    time_flat = time_grid.flatten()
+    lat_flat, alt_flat, time_flat = lat_grid.flatten(), alt_grid.flatten(), time_grid.flatten()
+    age_flat, std_flat = age.flatten(), std.flatten()
 
-    # Flatten age and std
-    age_flat = age.flatten()
-    std_flat = std.flatten()
-    sou_flat = sou.flatten()
-
-    fillval = -999
-    valid = (age_flat != fillval) & (std_flat != fillval) & ~np.isnan(age_flat) & ~np.isnan(std_flat)
-
-    X = np.stack([lat_flat, alt_flat, time_flat, sou_flat, age_flat], axis=1)[valid]
+    valid = (age_flat > 0) & (std_flat > 0) & ~np.isnan(age_flat) & ~np.isnan(std_flat)
+    X = np.stack([lat_flat, alt_flat, time_flat, sou.flatten(), age_flat], axis=1)[valid]
     Gamma = age_flat[valid]
     W = 1.0 / (std_flat[valid]**2 + 1e-8)
 
     return X, Gamma, W
 
 
-def load_model_dataset(filepath, time_range=None):
-    """Load model-simulated mean age of air from NetCDF and convert pressure levels to km.
+def load_model_dataset(filepath: str, time_range: Optional[Tuple[str, str]] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load model-simulated mean age of air from NetCDF and convert pressure levels to altitude.
 
     Parameters
     ----------
-    - filepath: path to NetCDF file with AOA(time, lat, lev), lev in pressure units
+    filepath : str
+        Path to NetCDF file with AOA(time, lat, lev) in pressure coordinates.
+
+    time_range : tuple of str, optional
+        Optional time range for filtering.
 
     Returns
     -------
-    - X: [N, 5] array with [lat, alt, time, source_id=2, AOA]
-    - Gamma: [N,] AOA values (target variable)
-    - W: [N,] synthetic uncertainty weights
+    X : np.ndarray
+        Input array [N, 5] with [lat, alt_km, time, source_id=2, AOA].
+
+    Gamma : np.ndarray
+        AOA values (target), shape [N,].
+
+    W : np.ndarray
+        Synthetic weights, shape [N,].
 
     """
     ds = xr.open_dataset(filepath)
-    if time_range is not None:
+    if time_range:
         ds = ds.sel(time=slice(*time_range))
 
-    ds = ds.where(ds.AOA>=1e-5).isel(lon=0).ffill('lev')
-    km = [std_atm.press2alt(x,press_units='pa',alt_units='km') for x in ds.lev.values]
-    ds = ds.assign_coords(lev=km)
+    ds = ds.where(ds.AOA >= 1e-5).isel(lon=0).ffill('lev')
+    alt_km = [std_atm.press2alt(p, press_units='pa', alt_units='km') for p in ds.lev.values]
+    ds = ds.assign_coords(lev=alt_km)
 
     lat = ds["lat"].values
     alt = ds["lev"].values
-    time = ds["time"].values
-    time = datetime64_to_year_fraction(time)
-    age = ds["AOA"].values  
-    age = np.transpose(age, (0, 2, 1))
-    std = np.ones_like(age) * 0.5 
-    sou = np.full_like(age,2)      # source: 0 satellite, 1 in-situ, 2 model
-    
-    # Create meshgrid
+    time = datetime64_to_year_fraction(ds["time"].values)
+    age = np.transpose(ds["AOA"].values, (0, 2, 1))
+    std = np.ones_like(age) * 0.5
+    sou = np.full_like(age, 2)
+
     time_grid, lat_grid, alt_grid = np.meshgrid(time, lat, alt, indexing='ij')
-    lat_flat = lat_grid.flatten()
-    alt_flat = alt_grid.flatten()
-    time_flat = time_grid.flatten()
+    lat_flat, alt_flat, time_flat = lat_grid.flatten(), alt_grid.flatten(), time_grid.flatten()
+    age_flat, std_flat = age.flatten(), std.flatten()
 
-    # Flatten age and std
-    age_flat = age.flatten()
-    std_flat = std.flatten()
-    sou_flat = sou.flatten()
-    
     valid = ~np.isnan(age_flat) & ~np.isnan(std_flat)
-
-    X = np.stack([lat_flat, alt_flat, time_flat, sou_flat, age_flat], axis=1)[valid]
-    
+    X = np.stack([lat_flat, alt_flat, time_flat, sou.flatten(), age_flat], axis=1)[valid]
     Gamma = np.clip(age_flat[valid], 0., None)
-    
-    W = 1.0 / (std_flat**2 + 1e-8)
-    W = np.clip(W, 0, 1e3)
+    W = np.clip(1.0 / (std_flat[valid]**2 + 1e-8), 0, 1e3)
 
     return X, Gamma, W
 
 
 def load_all_data_combined(
-    sat_paths=None,
-    insitu_paths=None,
-    model_paths=None,
-    time_range: tuple[str, str] = None
-    ):
-    """Load and concatenate multiple datasets into one training-ready array.
+    sat_paths: Optional[List[str]] = None,
+    insitu_paths: Optional[List[str]] = None,
+    model_paths: Optional[List[str]] = None,
+    time_range: Optional[Tuple[str, str]] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load and combine satellite, in-situ, and model datasets into unified arrays.
 
     Parameters
     ----------
-    - sat_paths: list of paths to satellite NetCDF files (optional)
-    - insitu_paths: list of paths to in-situ NetCDF files (optional)
-    - model_paths: list of paths to model output NetCDF files (optional)
+    sat_paths : list of str, optional
+        Paths to satellite NetCDF files.
+
+    insitu_paths : list of str, optional
+        Paths to in-situ NetCDF files.
+
+    model_paths : list of str, optional
+        Paths to model NetCDF files.
+
+    time_range : tuple of str, optional
+        Optional time range to apply to satellite/model data.
 
     Returns
     -------
-    - X: [N, 5] stacked array with [lat, alt, time, source, Gamma]
-    - Gamma: [N,] target values
-    - W: [N,] weights (1 / std²)
+    X : np.ndarray
+        Combined input features [N, 5].
+
+    Gamma : np.ndarray
+        Combined age values (targets), shape [N,].
+
+    W : np.ndarray
+        Combined weight values, shape [N,].
 
     """
     X_all, Gamma_all, W_all = [], [], []
@@ -223,53 +232,61 @@ def load_all_data_combined(
     )
 
 
-def load_tau_R(filename, X_obs):
-    """Interpolate τ_R (residence time) from model grid to observation coordinates.
+def load_tau_R(filename: str, X_obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Interpolate t_R (residence time) from model grid to observation coordinates.
 
     Parameters
     ----------
-    - filename: path to NetCDF with tau(lev, lat)
-    - X_obs: [N, 5] array of observation inputs, must include [lat, alt] in columns 0, 1
+    filename : str
+        Path to NetCDF file with t(lev, lat).
+
+    X_obs : np.ndarray
+        Array [N, 5] containing [lat, alt, time, source_id, G].
 
     Returns
     -------
-    - tau_R_interp: [N,] interpolated τ_R values
-    - mask_valid: [N,] boolean mask where interpolation is valid (not NaN)
+    tau_R_interp : np.ndarray
+        Interpolated t_R values at X_obs locations.
+
+    mask_valid : np.ndarray
+        Boolean mask where interpolation was successful.
 
     """
     ds = xr.open_dataset(filename).ffill('lat')
-
-    alts = ds['lev'].values
-    lats = ds['lat'].values
-    tau = ds['tau'].values
-
-    interp = RegularGridInterpolator((alts, lats), tau, bounds_error=False, fill_value=np.nan)
-
-    coords = np.stack([X_obs[:, 1], X_obs[:, 0]], axis=1)  # [alt, lat]
+    interp = RegularGridInterpolator(
+        (ds['lev'].values, ds['lat'].values),
+        ds['tau'].values,
+        bounds_error=False,
+        fill_value=np.nan
+    )
+    coords = np.stack([X_obs[:, 1], X_obs[:, 0]], axis=1)
     tau_R_interp = interp(coords)
     mask_valid = ~np.isnan(tau_R_interp)
-
     return tau_R_interp, mask_valid
 
-def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tuple[np.ndarray, np.ndarray]:
-    """Extend a [N, 5] input array X with 3 tropopause features and return an uncertainty weight vector W.
+
+def extend_with_tropopause_features(
+    X: np.ndarray,
+    csv_path: Optional[str] = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Extend a [N, 5] array with tropopause features and compute weights.
 
     Parameters
     ----------
     X : np.ndarray
-        Input array of shape [N, 5]: [lat, alt, time, source_id, Γ]
-    csv_path : str or None
-        Path to tropopause features CSV. If None, uses default in data/tropopause/.
+        Array [N, 5] with columns [lat, alt, time, source_id, G].
+
+    csv_path : str, optional
+        Path to the CSV with monthly tropopause features.
 
     Returns
     -------
     X_ext : np.ndarray
-        Extended input array of shape [N, 8] with appended features:
-        [lat, alt, time, source_id, Γ, tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol]
+        Extended array [N, 8] with 3 new columns:
+        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
 
     W : np.ndarray
-        Uncertainty weights derived from 1 / (std² + ε) for the 3 added features.
-        Shape: [N,]
+        Weight vector based on inverse variance of tropopause features.
 
     """
     if csv_path is None:
@@ -280,7 +297,6 @@ def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tupl
     df = pd.read_csv(csv_path, parse_dates=["time"])
     df["year_frac"] = df["time"].dt.year + (df["time"].dt.month - 1) / 12
 
-    # Tropopause values and stds
     features = ["tp_WMO_tro", "tp_WMO_sh_pol", "tp_WMO_nh_pol"]
     stds = ["tp_WMO_tro_std", "tp_WMO_sh_pol_std", "tp_WMO_nh_pol_std"]
 
@@ -291,20 +307,17 @@ def extend_with_tropopause_features(X: np.ndarray, csv_path: str = None) -> tupl
     sources = X[:, 3]
 
     X_ext = np.zeros((X.shape[0], 8))
-    W = np.ones(X.shape[0])  # default weights
-
+    W = np.ones(X.shape[0])
     X_ext[:, :5] = X
 
     for i, (t, sid) in enumerate(zip(times, sources)):
         if sid != 0:
             X_ext[i, 5:] = 0.0
-            W[i] = 1.0  # uniform default weight
+            W[i] = 1.0
         else:
-            # Find nearest time match
             nearest_time = tp_values.index[np.abs(tp_values.index - t).argmin()]
             X_ext[i, 5:] = tp_values.loc[nearest_time].values
-
             std_vals = tp_stds.loc[nearest_time].values
-            W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)  # combined inverse-variance weight
+            W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)
 
     return X_ext, W

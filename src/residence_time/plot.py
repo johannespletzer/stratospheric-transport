@@ -1,9 +1,11 @@
+from typing import List, Optional, Tuple
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
-from typing import Optional, Tuple, List, Union
 
 from residence_time.data import extend_with_tropopause_features
 
@@ -15,8 +17,7 @@ def plot_physics_residual(
     device: str = 'cuda',
     return_residuals: bool = False
 ) -> Optional[np.ndarray]:
-    """
-    Plot a histogram of physics residuals: t_R^pred - (2·D² / G_EI).
+    """Plot a histogram of physics residuals: t_R^pred - (2Â·DÂ² / G_EI).
 
     Parameters
     ----------
@@ -40,6 +41,7 @@ def plot_physics_residual(
     -------
     np.ndarray or None
         Physics residuals if `return_residuals` is True, otherwise None.
+
     """
     model.eval()
     residuals = []
@@ -70,8 +72,7 @@ def plot_physics_residual(
 
 
 def float_to_year_month(float_time_ns: float) -> str:
-    """
-    Convert a float64 datetime64 in nanoseconds to a 'YYYY-MM' string.
+    """Convert a float64 datetime64 in nanoseconds to a 'YYYY-MM' string.
 
     Parameters
     ----------
@@ -82,6 +83,7 @@ def float_to_year_month(float_time_ns: float) -> str:
     -------
     str
         Date string formatted as 'YYYY-MM'.
+
     """
     dt = np.datetime64(int(float_time_ns), 'ns').astype('datetime64[M]')
     return str(dt)
@@ -90,7 +92,7 @@ def float_to_year_month(float_time_ns: float) -> str:
 def plot_field_from_data(
     model: nn.Module,
     X: np.ndarray,
-    scaler_X,
+    scaler_X: TransformerMixin,
     field: str = 'tau_R',
     grid_res: Tuple[int, int] = (64, 40),
     time_value: Optional[float] = None,
@@ -101,8 +103,7 @@ def plot_field_from_data(
     use_tropopause_features: bool = False,
     tp_csv_path: Optional[str] = None,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """
-    Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
+    """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
 
     Parameters
     ----------
@@ -146,6 +147,7 @@ def plot_field_from_data(
     -------
     Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]
         (lat_vals, alt_vals, field_grid) if return_data is True, else None.
+
     """
     model.eval()
 
@@ -182,7 +184,7 @@ def plot_field_from_data(
 
     plt.figure(figsize=(7, 5))
     contour = plt.contourf(lat_vals, alt_vals, field_grid.T, levels=20, cmap='viridis')
-    plt.xlabel("Latitude [°]")
+    plt.xlabel("Latitude [Â°]")
     plt.ylabel("Altitude [km]")
 
     time_label = float_to_year_month(time_fixed) if time_fixed > 1e4 else time_fixed
@@ -206,8 +208,7 @@ def plot_training_progress(
     log_scale: bool = True,
     save_path: Optional[str] = None
 ) -> None:
-    """
-    Plot the evolution of loss values during training.
+    """Plot the evolution of loss values during training.
 
     Parameters
     ----------
@@ -232,6 +233,7 @@ def plot_training_progress(
     Returns
     -------
     None
+
     """
     epochs = range(1, len(train_losses) + 1)
 
@@ -263,8 +265,7 @@ def plot_tau_R_prediction_vs_target(
     dataloader: DataLoader,
     device: str = 'cuda'
 ) -> None:
-    """
-    Plot predicted t_R vs. target t_R on a validation batch.
+    """Plot predicted t_R vs. target t_R on a validation batch.
 
     Parameters
     ----------
@@ -280,6 +281,7 @@ def plot_tau_R_prediction_vs_target(
     Returns
     -------
     None
+
     """
     model.eval()
     Xb, _, _, Tb = next(iter(dataloader))
