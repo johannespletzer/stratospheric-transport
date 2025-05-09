@@ -3,17 +3,34 @@
 Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network to model **residence time (τ_R)** in the stratosphere using estimates of the **mean age of air (Γ)** from satellite, in-situ, and model datasets. Tropopause reanalysis data can be used as additional features.
 
 The network is based on:
-- Supervised learning with τ_R observations
+- Supervised learning with residence time data 
 - Partly-supervised learning with physics-based constraints: τ_R = 2·D² / Γ
 
 ---
 
 ## Project Highlights
 
-- Learns spatial and temporal variation of τ_R
+- Model learns spatial and temporal variation of residence time
 - Optional prediction of physical parameter D (diffusivity)
 - Input features lat, alt, time, source and Γ (Age of air)
 - Tropopause height in tropics, southern or northern Hemisphere are optional features
+
+---
+
+## Installation and code changes
+
+Install the package:
+
+```bash
+pip install -e .
+```
+
+Check code changes with pytest and ruff before committing to ensure integrity
+
+```bash
+pytest -v
+ruff check src/ scripts/ 
+```
 
 ---
 
