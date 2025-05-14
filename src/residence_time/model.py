@@ -28,6 +28,9 @@ class PINNModel(nn.Module):
         If True, the model expects 3 additional input features:
         [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
 
+    use_seasonal_features : bool, default=False
+        If True, the model expects 2 additional input features.
+
     """
 
     def __init__(
@@ -37,6 +40,7 @@ class PINNModel(nn.Module):
         hidden_layers: int = 3,
         include_D: bool = True,
         use_tropopause_features: bool = False,
+        use_seasonal_features: bool = False,
     ):
         super().__init__()
         self.include_D = include_D
@@ -44,6 +48,7 @@ class PINNModel(nn.Module):
 
         # Adjust input dimension if tropopause features are included
         effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
+        effective_input_dim = effective_input_dim + (2 if use_seasonal_features else 0)
 
         # t_R branch
         layers_tau = []

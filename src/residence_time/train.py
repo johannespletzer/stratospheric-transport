@@ -62,7 +62,8 @@ def create_train_val_loaders(
     tau_R: Optional[np.ndarray] = None,
     batch_size: int = 256,
     val_split: float = 0.2,
-    device: str = 'cuda'
+    device: str = 'cuda',
+    add_season: bool = False
 ) -> Tuple[DataLoader, DataLoader]:
     """Split data into training and validation sets and return DataLoaders.
 
@@ -94,6 +95,9 @@ def create_train_val_loaders(
     device : str, default='cuda'
         Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
 
+    add_season : bool, default=False
+        Option to focus on seasonal features of time feature
+
     Returns
     -------
     train_loader : DataLoader
@@ -114,6 +118,10 @@ def create_train_val_loaders(
         tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
         tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
 
+    if add_season:
+        X_train = add_cyclical_time_features(X_train)
+        X_val = add_cyclical_time_features(X_val)
+
     return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
            make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
 
@@ -124,6 +132,14 @@ def scale_variables(X_obs: np.ndarray) -> Tuple[np.ndarray, MinMaxScaler]:
     X_scaled = scaler_X.fit_transform(X_obs)
 
     return X_scaled, scaler_X
+
+
+def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
+    """Add sin/cos of fractional year (e.g. 0.25 = spring) to feature array."""
+    time_frac = X[:, time_col] % 1  # isolate seasonal phase
+    sin_time = np.sin(2 * np.pi * time_frac)
+    cos_time = np.cos(2 * np.pi * time_frac)
+    return np.concatenate([X, sin_time[:, None], cos_time[:, None]], axis=1)
 
 
 def scale_variables_columnwise(

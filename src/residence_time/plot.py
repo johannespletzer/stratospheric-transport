@@ -8,6 +8,7 @@ from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
 from residence_time.data import extend_with_tropopause_features
+from residence_time.train import add_cyclical_time_features
 
 
 def plot_physics_residual(
@@ -101,6 +102,7 @@ def plot_field_from_data(
     device: str = 'cuda',
     return_data: bool = False,
     use_tropopause_features: bool = False,
+    use_seasonal_features: bool = False,
     tp_csv_path: Optional[str] = None,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
@@ -140,6 +142,9 @@ def plot_field_from_data(
     use_tropopause_features : bool, default=False
         Whether to include tropopause-based model inputs.
 
+    use_seasonal_features : bool, default=False
+        Whether to include cyclical features to address seasonal patterns 
+
     tp_csv_path : str, optional
         Path to the CSV file with tropopause features.
 
@@ -174,6 +179,10 @@ def plot_field_from_data(
         X_full = X_base
 
     X_scaled = scaler_X.transform(X_full)
+
+    if use_seasonal_features:
+        X_scaled = add_cyclical_time_features(X_scaled)
+
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
 
     with torch.no_grad():
@@ -187,7 +196,7 @@ def plot_field_from_data(
     plt.xlabel("Latitude [°]")
     plt.ylabel("Altitude [km]")
 
-    time_label = float_to_year_month(time_fixed) if time_fixed > 1e4 else time_fixed
+    time_label = np.round(float_to_year_month(time_fixed) if time_fixed > 1e4 else time_fixed,2)
     plt.title(
         rf"Predicted {field} | time={time_label}, source={int(source_fixed)}, $\Gamma_{{EI}}$={gamma_fixed:.2f}"
     )

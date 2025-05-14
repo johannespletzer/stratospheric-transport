@@ -36,6 +36,31 @@ def datetime64_to_year_fraction(
     fraction = (t - start_of_year) / (start_of_next_year - start_of_year)
     return (year + fraction.values).to_numpy()
 
+def year_fraction_to_datetime64(
+    year_frac: Union[np.ndarray, list, float]
+) -> np.ndarray:
+    """Convert fractional years to datetime64[ns].
+
+    Parameters
+    ----------
+    year_frac : float, list, or np.ndarray
+        Fractional years (e.g. 2004.04).
+
+    Returns
+    -------
+    np.ndarray
+        Array of datetime64[ns] corresponding to the input fractional years.
+    """
+    year_frac = np.atleast_1d(year_frac).astype(float)
+    years = np.floor(year_frac).astype(int)
+    frac = year_frac - years
+
+    start_of_year = pd.to_datetime(years.astype(str))
+    start_of_next_year = pd.to_datetime((years + 1).astype(str))
+    delta = (start_of_next_year - start_of_year) * frac
+
+    result = start_of_year + delta
+    return result.to_numpy()
 
 def load_checkpoint(
     model: nn.Module,
