@@ -41,14 +41,16 @@ class PINNModel(nn.Module):
         include_D: bool = True,
         use_tropopause_features: bool = False,
         use_seasonal_features: bool = False,
+        use_rbf_features: bool = False,
     ):
         super().__init__()
         self.include_D = include_D
         self.use_tropopause_features = use_tropopause_features
 
-        # Adjust input dimension if tropopause features are included
-        effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
-        effective_input_dim = effective_input_dim + (2 if use_seasonal_features else 0)
+        # Adjust input dimension if other features are included
+        effective_input_dim = input_dim + (3 if use_tropopause_features else 0) \
+                            + (2 if use_seasonal_features else 0) \
+                            + (12 if use_rbf_features else 0)
 
         # t_R branch
         layers_tau = []

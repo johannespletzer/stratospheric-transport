@@ -8,7 +8,7 @@ from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
 from residence_time.data import extend_with_tropopause_features
-from residence_time.train import add_cyclical_time_features
+from residence_time.train import add_cyclical_time_features, add_rbf_time_features
 
 
 def plot_physics_residual(
@@ -103,6 +103,7 @@ def plot_field_from_data(
     return_data: bool = False,
     use_tropopause_features: bool = False,
     use_seasonal_features: bool = False,
+    use_rbf_features: bool = False,
     tp_csv_path: Optional[str] = None,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
@@ -145,6 +146,9 @@ def plot_field_from_data(
     use_seasonal_features : bool, default=False
         Whether to include cyclical features to address seasonal patterns 
 
+    use_rbf_features : bool, default=False
+        Whether to include radial basis functions to address seasonal patterns 
+
     tp_csv_path : str, optional
         Path to the CSV file with tropopause features.
 
@@ -182,6 +186,9 @@ def plot_field_from_data(
 
     if use_seasonal_features:
         X_scaled = add_cyclical_time_features(X_scaled)
+
+    if use_rbf_features:
+        X_scaled = add_rbf_time_features(X_scaled)
 
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
 

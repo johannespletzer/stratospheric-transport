@@ -63,7 +63,8 @@ def create_train_val_loaders(
     batch_size: int = 256,
     val_split: float = 0.2,
     device: str = 'cuda',
-    add_season: bool = False
+    add_season: bool = False,
+    add_rbf: bool = False
 ) -> Tuple[DataLoader, DataLoader]:
     """Split data into training and validation sets and return DataLoaders.
 
@@ -98,6 +99,9 @@ def create_train_val_loaders(
     add_season : bool, default=False
         Option to focus on seasonal features of time feature
 
+    add_rbf : bool, default=False
+        Option to apply radial basis function for time features
+
     Returns
     -------
     train_loader : DataLoader
@@ -122,6 +126,11 @@ def create_train_val_loaders(
         X_train = add_cyclical_time_features(X_train)
         X_val = add_cyclical_time_features(X_val)
 
+    if add_rbf:
+        X_train = add_rbf_time_features(X_train, n_rbf=12, gamma=100.0)
+        X_val = add_rbf_time_features(X_val, n_rbf=12, gamma=100.0)
+
+
     return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
            make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
 
@@ -140,6 +149,19 @@ def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
     sin_time = np.sin(2 * np.pi * time_frac)
     cos_time = np.cos(2 * np.pi * time_frac)
     return np.concatenate([X, sin_time[:, None], cos_time[:, None]], axis=1)
+
+
+def rbf_transformer(time, centers, gamma=100.0):
+    frac_time = (time % 1)[:, None]  # (N, 1)
+    centers = centers[None, :]      # (1, M)
+    return np.exp(-gamma * (frac_time - centers) ** 2)
+
+
+def add_rbf_time_features(X: np.ndarray, time_col: int = 2, n_rbf: int = 12, gamma: float = 100.0) -> np.ndarray:
+    time_frac = X[:, time_col] % 1
+    centers = np.linspace(0, 1, n_rbf, endpoint=False)
+    rbf_feats = rbf_transformer(time_frac, centers, gamma)
+    return np.concatenate([X, rbf_feats], axis=1)
 
 
 def scale_variables_columnwise(
@@ -175,6 +197,17 @@ def scale_variables_columnwise(
 
     X_scaled = scaler_X.fit_transform(X_obs)
     return X_scaled, scaler_X
+
+
+def spectral_loss(pred, ref, eps=1e-8):
+    pred_fft = torch.fft.fft(pred.squeeze())
+    ref_fft = torch.fft.fft(ref.squeeze())
+    return torch.mean((torch.abs(pred_fft) - torch.abs(ref_fft)) ** 2)
+
+
+def variance_loss(pred, target_var):
+    pred_var = torch.var(pred)
+    return (pred_var - target_var) ** 2
 
 
 def train_model(
