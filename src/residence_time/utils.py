@@ -1,7 +1,9 @@
-import glob
 import os
+import json
+import glob
 from datetime import datetime
 from typing import Optional, Union
+
 
 import joblib
 import numpy as np
@@ -252,3 +254,69 @@ def save_scaler(
     joblib.dump(scaler, scaler_path)
 
     return scaler_path
+
+
+def save_config(config: dict, checkpoint_dir: Optional[str] = None) -> str:
+    """
+    Save a config dictionary with a timestamped filename and a latest pointer.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration to save.
+    checkpoint_dir : str, optional
+        Directory to save to. Defaults to 'models/configs' in the project root.
+
+    Returns
+    -------
+    str : Full path to the saved config file.
+    """
+    if checkpoint_dir is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        checkpoint_dir = os.path.join(project_root, "models", "configs")
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"time_config_{timestamp}.json"
+    path = os.path.join(checkpoint_dir, filename)
+
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"Saved config to: {path}")
+    return path
+
+
+def load_config(checkpoint_dir: Optional[str] = None) -> Optional[dict]:
+    """
+    Load the most recently saved time encoding config.
+
+    Parameters
+    ----------
+    checkpoint_dir : str, optional
+        Directory to load from. Defaults to 'models/configs' in the project root.
+
+    Returns
+    -------
+    dict or None
+    """
+    if checkpoint_dir is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        checkpoint_dir = os.path.join(project_root, "models", "configs")
+
+    pattern = os.path.join(checkpoint_dir, "time_config_*.json")
+    config_files = sorted(glob.glob(pattern))
+
+    if not config_files:
+        print(f"No config found in: {checkpoint_dir}")
+        return None
+
+    latest_config = config_files[-1]
+    with open(latest_config, "r") as f:
+        config = json.load(f)
+
+    print(f"Loaded config from: {latest_config}")
+    return config
