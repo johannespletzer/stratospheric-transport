@@ -4,11 +4,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+from collections import ChainMap
 from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
 from residence_time.data import extend_with_tropopause_features
-from residence_time.train import add_cyclical_time_features, add_rbf_time_features
+from residence_time.train import apply_time_encoding
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
 
 
 def plot_physics_residual(
@@ -102,8 +104,7 @@ def plot_field_from_data(
     device: str = 'cuda',
     return_data: bool = False,
     use_tropopause_features: bool = False,
-    use_seasonal_features: bool = False,
-    use_rbf_features: bool = False,
+    time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
     tp_csv_path: Optional[str] = None,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
@@ -143,11 +144,8 @@ def plot_field_from_data(
     use_tropopause_features : bool, default=False
         Whether to include tropopause-based model inputs.
 
-    use_seasonal_features : bool, default=False
-        Whether to include cyclical features to address seasonal patterns 
-
-    use_rbf_features : bool, default=False
-        Whether to include radial basis functions to address seasonal patterns 
+    time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
+        Option to activate seasonal and annual features via config
 
     tp_csv_path : str, optional
         Path to the CSV file with tropopause features.
@@ -158,6 +156,8 @@ def plot_field_from_data(
         (lat_vals, alt_vals, field_grid) if return_data is True, else None.
 
     """
+    time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
+    
     model.eval()
 
     lat_min, lat_max = np.min(X[:, 0]), np.max(X[:, 0])
@@ -184,11 +184,8 @@ def plot_field_from_data(
 
     X_scaled = scaler_X.transform(X_full)
 
-    if use_seasonal_features:
-        X_scaled = add_cyclical_time_features(X_scaled)
-
-    if use_rbf_features:
-        X_scaled = add_rbf_time_features(X_scaled)
+    if time_encoding_config["enabled"]:
+        X_scaled = apply_time_encoding(X_scaled, time_encoding_config)
 
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
 

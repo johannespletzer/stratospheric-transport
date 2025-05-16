@@ -2,12 +2,15 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
+from collections import ChainMap
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
+
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
 
 
 def make_loader(
@@ -55,86 +58,6 @@ def make_loader(
     return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
-def create_train_val_loaders(
-    X: np.ndarray,
-    Gamma: np.ndarray,
-    W: np.ndarray,
-    tau_R: Optional[np.ndarray] = None,
-    batch_size: int = 256,
-    val_split: float = 0.2,
-    device: str = 'cuda',
-    add_season: bool = False,
-    add_rbf: bool = False
-) -> Tuple[DataLoader, DataLoader]:
-    """Split data into training and validation sets and return DataLoaders.
-
-    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples 
-    for use in training a PINN model. If no tau_R targets are provided, the 
-    function fills them with NaNs for compatibility.
-
-    Parameters
-    ----------
-    X : np.ndarray
-        Input features of shape [N, D] (e.g., lat, alt, time, source, Gamma_EI).
-
-    Gamma : np.ndarray
-        Effective irreversibility (Γ_EI) values, shape [N,].
-
-    W : np.ndarray
-        Weights for the physics loss (e.g., 1 / std²), shape [N,].
-
-    tau_R : np.ndarray or None, optional
-        Supervised residence time target values τ_R, shape [N,]. If None,
-        NaNs will be filled for compatibility with the model interface.
-
-    batch_size : int, default=256
-        Batch size for the DataLoaders.
-
-    val_split : float, default=0.2
-        Fraction of the dataset to use for validation.
-
-    device : str, default='cuda'
-        Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
-
-    add_season : bool, default=False
-        Option to focus on seasonal features of time feature
-
-    add_rbf : bool, default=False
-        Option to apply radial basis function for time features
-
-    Returns
-    -------
-    train_loader : DataLoader
-        PyTorch DataLoader for training data.
-
-    val_loader : DataLoader
-        PyTorch DataLoader for validation data.
-
-    """
-    if tau_R is not None:
-        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
-            X, Gamma, W, tau_R, test_size=val_split, random_state=42
-        )
-    else:
-        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val = train_test_split(
-            X, Gamma, W, test_size=val_split, random_state=42
-        )
-        tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
-        tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
-
-    if add_season:
-        X_train = add_cyclical_time_features(X_train)
-        X_val = add_cyclical_time_features(X_val)
-
-    if add_rbf:
-        X_train = add_rbf_time_features(X_train, n_rbf=12, gamma=100.0)
-        X_val = add_rbf_time_features(X_val, n_rbf=12, gamma=100.0)
-
-
-    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
-           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
-
-
 def scale_variables(X_obs: np.ndarray) -> Tuple[np.ndarray, MinMaxScaler]:
     """Scale features for model training."""
     scaler_X = MinMaxScaler()
@@ -152,16 +75,100 @@ def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
 
 
 def rbf_transformer(time, centers, gamma=100.0):
-    frac_time = (time % 1)[:, None]  # (N, 1)
-    centers = centers[None, :]      # (1, M)
-    return np.exp(-gamma * (frac_time - centers) ** 2)
+    """
+    time: (N,) input values
+    centers: (M,) RBF centers
+    gamma: float, controls width of each basis function
+    Returns: (N, M) RBF matrix
+    """
+    time = time[:, None]  # (N, 1)
+    centers = centers[None, :]  # (1, M)
+    return np.exp(-gamma * (time - centers) ** 2)
 
 
-def add_rbf_time_features(X: np.ndarray, time_col: int = 2, n_rbf: int = 12, gamma: float = 100.0) -> np.ndarray:
-    time_frac = X[:, time_col] % 1
-    centers = np.linspace(0, 1, n_rbf, endpoint=False)
-    rbf_feats = rbf_transformer(time_frac, centers, gamma)
+def add_rbf_time_features(
+    X: np.ndarray,
+    time_col: int = 2,
+    kind: str = "seasonal",  # "seasonal" or "absolute"
+    n_rbf: int = 12,
+    gamma: float = 100.0,
+    t_min: float = 1980.0,
+    t_max: float = 2025.0
+) -> np.ndarray:
+    """
+    Add RBF time features to input array.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Input features [N, D]
+    time_col : int
+        Index of time column (default: 2)
+    kind : str
+        "seasonal" → use time % 1 (cyclical)
+        "absolute" → use full time range
+    n_rbf : int
+        Number of basis functions
+    gamma : float
+        Width control for RBFs
+    t_min : float
+        Minimum time value for absolute encoding
+    t_max : float
+        Maximum time value for absolute encoding
+
+    Returns
+    -------
+    X_ext : np.ndarray
+        Extended input with RBF time features
+    """
+    time = X[:, time_col]
+
+    if kind == "seasonal":
+        time_transformed = time % 1
+        centers = np.linspace(0, 1, n_rbf, endpoint=False)
+    elif kind == "absolute":
+        # Normalize time to [0, 1]
+        time_transformed = (time - t_min) / (t_max - t_min)
+        centers = np.linspace(0, 1, n_rbf)
+    else:
+        raise ValueError("kind must be 'seasonal' or 'absolute'")
+
+    rbf_feats = rbf_transformer(time_transformed, centers, gamma)
     return np.concatenate([X, rbf_feats], axis=1)
+
+
+def apply_time_encoding(X: np.ndarray, cfg: dict) -> np.ndarray:
+    """Use config to apply time encoding options."""
+    cfg = dict(ChainMap(cfg, DEFAULT_TIME_ENCODING_CONFIG))
+
+    if not cfg.get("enabled", False):
+        return X
+
+    X_out = X.copy()
+    t_col = cfg["time_col"]
+    time = X[:, t_col]
+
+    features_to_add = []
+
+    if cfg["use_cyclical"]:
+        X_out = add_cyclical_time_features(X_out, time_col=t_col)
+
+    if cfg["use_rbf_seasonal"]:
+        time_frac = time % 1
+        centers = np.linspace(0, 1, cfg["n_rbf_seasonal"], endpoint=False)
+        rbf_seasonal = rbf_transformer(time_frac, centers, cfg["gamma_seasonal"])
+        features_to_add.append(rbf_seasonal)
+
+    if cfg["use_rbf_absolute"]:
+        time_norm = (time - cfg["t_min"]) / (cfg["t_max"] - cfg["t_min"])
+        centers = np.linspace(0, 1, cfg["n_rbf_absolute"])
+        rbf_abs = rbf_transformer(time_norm, centers, cfg["gamma_absolute"])
+        features_to_add.append(rbf_abs)
+
+    if features_to_add:
+        X_out = np.concatenate([X_out] + features_to_add, axis=1)
+
+    return X_out
 
 
 def scale_variables_columnwise(
@@ -199,15 +206,77 @@ def scale_variables_columnwise(
     return X_scaled, scaler_X
 
 
-def spectral_loss(pred, ref, eps=1e-8):
-    pred_fft = torch.fft.fft(pred.squeeze())
-    ref_fft = torch.fft.fft(ref.squeeze())
-    return torch.mean((torch.abs(pred_fft) - torch.abs(ref_fft)) ** 2)
+def create_train_val_loaders(
+    X: np.ndarray,
+    Gamma: np.ndarray,
+    W: np.ndarray,
+    tau_R: Optional[np.ndarray] = None,
+    batch_size: int = 256,
+    val_split: float = 0.2,
+    device: str = 'cuda',
+    time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
+) -> Tuple[DataLoader, DataLoader]:
+    """Split data into training and validation sets and return DataLoaders.
 
+    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples 
+    for use in training a PINN model. If no tau_R targets are provided, the 
+    function fills them with NaNs for compatibility.
 
-def variance_loss(pred, target_var):
-    pred_var = torch.var(pred)
-    return (pred_var - target_var) ** 2
+    Parameters
+    ----------
+    X : np.ndarray
+        Input features of shape [N, D] (e.g., lat, alt, time, source, Gamma_EI).
+
+    Gamma : np.ndarray
+        Effective irreversibility (Γ_EI) values, shape [N,].
+
+    W : np.ndarray
+        Weights for the physics loss (e.g., 1 / std²), shape [N,].
+
+    tau_R : np.ndarray or None, optional
+        Supervised residence time target values τ_R, shape [N,]. If None,
+        NaNs will be filled for compatibility with the model interface.
+
+    batch_size : int, default=256
+        Batch size for the DataLoaders.
+
+    val_split : float, default=0.2
+        Fraction of the dataset to use for validation.
+
+    device : str, default='cuda'
+        Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
+
+    time_encoding_config : bool, default=DEFAULT_TIME_ENCODING_CONFIG
+        Option to add features for seasonal and long-term trends
+
+    Returns
+    -------
+    train_loader : DataLoader
+        PyTorch DataLoader for training data.
+
+    val_loader : DataLoader
+        PyTorch DataLoader for validation data.
+
+    """
+    if tau_R is not None:
+        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
+            X, Gamma, W, tau_R, test_size=val_split, random_state=42
+        )
+    else:
+        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val = train_test_split(
+            X, Gamma, W, test_size=val_split, random_state=42
+        )
+        tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
+        tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
+
+    time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
+
+    if time_encoding_config.get("enabled", False):
+        X_train = apply_time_encoding(X_train, time_encoding_config)
+        X_val = apply_time_encoding(X_val, time_encoding_config)
+
+    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
+           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
 
 
 def train_model(

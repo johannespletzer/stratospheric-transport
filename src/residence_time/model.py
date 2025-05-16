@@ -1,4 +1,6 @@
 from typing import Optional, Tuple
+from collections import ChainMap
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
 
 import torch
 import torch.nn as nn
@@ -28,8 +30,8 @@ class PINNModel(nn.Module):
         If True, the model expects 3 additional input features:
         [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
 
-    use_seasonal_features : bool, default=False
-        If True, the model expects 2 additional input features.
+    time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
+        Option to activate seasonal and annual features via config
 
     """
 
@@ -40,17 +42,23 @@ class PINNModel(nn.Module):
         hidden_layers: int = 3,
         include_D: bool = True,
         use_tropopause_features: bool = False,
-        use_seasonal_features: bool = False,
-        use_rbf_features: bool = False,
+        time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
     ):
         super().__init__()
         self.include_D = include_D
-        self.use_tropopause_features = use_tropopause_features
+
+        time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
 
         # Adjust input dimension if other features are included
-        effective_input_dim = input_dim + (3 if use_tropopause_features else 0) \
-                            + (2 if use_seasonal_features else 0) \
-                            + (12 if use_rbf_features else 0)
+        effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
+
+        if time_encoding_config.get("enabled", False):
+            if time_encoding_config["use_cyclical"]:
+                effective_input_dim += 2
+            if time_encoding_config["use_rbf_seasonal"]:
+                effective_input_dim += time_encoding_config["n_rbf_seasonal"]
+            if time_encoding_config["use_rbf_absolute"]:
+                effective_input_dim += time_encoding_config["n_rbf_absolute"]
 
         # t_R branch
         layers_tau = []
