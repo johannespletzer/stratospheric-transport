@@ -1,4 +1,5 @@
 import torch
+
 from residence_time.model import PINNModel
 
 BASE_INPUT_DIM = 5

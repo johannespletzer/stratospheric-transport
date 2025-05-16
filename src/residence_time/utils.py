@@ -1,9 +1,8 @@
-import os
-import json
 import glob
+import json
+import os
 from datetime import datetime
 from typing import Optional, Union
-
 
 import joblib
 import numpy as np
@@ -52,6 +51,7 @@ def year_fraction_to_datetime64(
     -------
     np.ndarray
         Array of datetime64[ns] corresponding to the input fractional years.
+
     """
     year_frac = np.atleast_1d(year_frac).astype(float)
     years = np.floor(year_frac).astype(int)
@@ -257,8 +257,7 @@ def save_scaler(
 
 
 def save_config(config: dict, checkpoint_dir: Optional[str] = None) -> str:
-    """
-    Save a config dictionary with a timestamped filename and a latest pointer.
+    """Save a config dictionary with a timestamped filename and a latest pointer.
 
     Parameters
     ----------
@@ -270,6 +269,7 @@ def save_config(config: dict, checkpoint_dir: Optional[str] = None) -> str:
     Returns
     -------
     str : Full path to the saved config file.
+
     """
     if checkpoint_dir is None:
         this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -290,8 +290,7 @@ def save_config(config: dict, checkpoint_dir: Optional[str] = None) -> str:
 
 
 def load_config(checkpoint_dir: Optional[str] = None) -> Optional[dict]:
-    """
-    Load the most recently saved time encoding config.
+    """Load the most recently saved time encoding config.
 
     Parameters
     ----------
@@ -301,6 +300,7 @@ def load_config(checkpoint_dir: Optional[str] = None) -> Optional[dict]:
     Returns
     -------
     dict or None
+
     """
     if checkpoint_dir is None:
         this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -315,7 +315,7 @@ def load_config(checkpoint_dir: Optional[str] = None) -> Optional[dict]:
         return None
 
     latest_config = config_files[-1]
-    with open(latest_config, "r") as f:
+    with open(latest_config) as f:
         config = json.load(f)
 
     print(f"Loaded config from: {latest_config}")

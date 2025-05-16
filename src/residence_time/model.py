@@ -1,9 +1,10 @@
-from typing import Optional, Tuple
 from collections import ChainMap
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
+
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
 
 
 class PINNModel(nn.Module):

@@ -1,16 +1,16 @@
+from collections import ChainMap
 from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from collections import ChainMap
 from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
 
 
 def plot_physics_residual(

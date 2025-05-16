@@ -1,8 +1,8 @@
+from collections import ChainMap
 from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
-from collections import ChainMap
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
@@ -74,11 +74,13 @@ def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
     return np.concatenate([X, sin_time[:, None], cos_time[:, None]], axis=1)
 
 
-def rbf_transformer(time, centers, gamma=100.0):
-    """
+def rbf_transformer(time: np.ndarray, centers: np.ndarray, gamma: float=100.0) -> np.ndarray:
+    """Return radial basis functions for input values.
+    
     time: (N,) input values
     centers: (M,) RBF centers
     gamma: float, controls width of each basis function
+    
     Returns: (N, M) RBF matrix
     """
     time = time[:, None]  # (N, 1)
@@ -95,8 +97,7 @@ def add_rbf_time_features(
     t_min: float = 1980.0,
     t_max: float = 2025.0
 ) -> np.ndarray:
-    """
-    Add RBF time features to input array.
+    """Add RBF time features to input array.
 
     Parameters
     ----------
@@ -120,6 +121,7 @@ def add_rbf_time_features(
     -------
     X_ext : np.ndarray
         Extended input with RBF time features
+
     """
     time = X[:, time_col]
 
