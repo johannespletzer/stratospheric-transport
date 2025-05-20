@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, MEAN_TAU
 
 
 class PINNModel(nn.Module):
@@ -47,6 +47,7 @@ class PINNModel(nn.Module):
     ):
         super().__init__()
         self.include_D = include_D
+        self.tauR_intercept = nn.Parameter(torch.tensor(MEAN_TAU))
 
         time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
 
