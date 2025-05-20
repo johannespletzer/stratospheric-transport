@@ -1,3 +1,5 @@
+import numpy as np
+
 DEFAULT_TIME_ENCODING_CONFIG = {
     "enabled": False,
     "use_cyclical": False,
@@ -11,3 +13,6 @@ DEFAULT_TIME_ENCODING_CONFIG = {
     "t_max": 2025.0,
     "time_col": 2
 }
+
+PHYSICS_CONSTRAINT = "diffusivity"  # Options: "harmonic", "diffusivity"
+OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)

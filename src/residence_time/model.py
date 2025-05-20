@@ -66,6 +66,7 @@ class PINNModel(nn.Module):
         in_dim = effective_input_dim
         for _ in range(hidden_layers):
             layers_tau.append(nn.Linear(in_dim, hidden_dim))
+            layers_tau.append(nn.BatchNorm1d(hidden_dim))
             layers_tau.append(nn.Tanh())
             in_dim = hidden_dim
         layers_tau.append(nn.Linear(in_dim, 1))
@@ -77,6 +78,7 @@ class PINNModel(nn.Module):
             in_dim = effective_input_dim
             for _ in range(hidden_layers):
                 layers_D.append(nn.Linear(in_dim, hidden_dim))
+                layers_D.append(nn.BatchNorm1d(hidden_dim))
                 layers_D.append(nn.Tanh())
                 in_dim = hidden_dim
             layers_D.append(nn.Linear(in_dim, 1))
