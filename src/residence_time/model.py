@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, MEAN_TAU
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, MEAN_TAU, USE_TROPOPAUSE_FEATURES
 
 
 class PINNModel(nn.Module):
@@ -27,7 +27,7 @@ class PINNModel(nn.Module):
     include_D : bool, default=True
         Whether to include a separate output branch for diffusivity D.
 
-    use_tropopause_features : bool, default=False
+    use_tropopause_features : bool, default=USE_TROPOPAUSE_FEATURES
         If True, the model expects 3 additional input features:
         [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
 
@@ -42,7 +42,7 @@ class PINNModel(nn.Module):
         hidden_dim: int = 64,
         hidden_layers: int = 3,
         include_D: bool = True,
-        use_tropopause_features: bool = False,
+        use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
         time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
     ):
         super().__init__()

@@ -16,3 +16,6 @@ DEFAULT_TIME_ENCODING_CONFIG = {
 
 PHYSICS_CONSTRAINT = "diffusivity"  # Options: "harmonic", "diffusivity"
 OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)
+
+MEAN_TAU = 1.5
+USE_TROPOPAUSE_FEATURES = False

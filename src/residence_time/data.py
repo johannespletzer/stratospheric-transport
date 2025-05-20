@@ -8,6 +8,7 @@ from aerocalc3 import std_atm
 from scipy.interpolate import RegularGridInterpolator
 
 from residence_time.utils import datetime64_to_year_fraction
+from residence_time.config import USE_TROPOPAUSE_FEATURES
 
 
 def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -172,7 +173,8 @@ def load_all_data_combined(
     sat_paths: Optional[List[str]] = None,
     insitu_paths: Optional[List[str]] = None,
     model_paths: Optional[List[str]] = None,
-    time_range: Optional[Tuple[str, str]] = None
+    time_range: Optional[Tuple[str, str]] = None,
+    trop_features: bool = USE_TROPOPAUSE_FEATURES
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load and combine satellite, in-situ, and model datasets into unified arrays.
 
@@ -225,8 +227,12 @@ def load_all_data_combined(
             Gamma_all.append(Gamma)
             W_all.append(W)
 
+    X_out = np.vstack(X_all)
+    if trop_features:
+        X_out = extend_with_tropopause_features(X_out)
+
     return (
-        np.vstack(X_all),
+        X_out,
         np.concatenate(Gamma_all),
         np.concatenate(W_all)
     )

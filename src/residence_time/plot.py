@@ -8,7 +8,7 @@ import torch.nn as nn
 from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, USE_TROPOPAUSE_FEATURES
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
 
@@ -103,7 +103,7 @@ def plot_field_from_data(
     gamma_value: Optional[float] = None,
     device: str = 'cuda',
     return_data: bool = False,
-    use_tropopause_features: bool = False,
+    use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
     time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
     tp_csv_path: Optional[str] = None,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:

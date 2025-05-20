@@ -4,8 +4,8 @@ from typing import List, Optional, Tuple
 import numpy as np
 import torch
 from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
@@ -179,36 +179,39 @@ def apply_time_encoding(X: np.ndarray, cfg: dict) -> np.ndarray:
 
 def scale_variables_columnwise(
     X_obs: np.ndarray,
-    scaler: str = 'MinMaxScaler'
+    scaler: str = 'StandardScaler'
 ) -> Tuple[np.ndarray, ColumnTransformer]:
-    """Scale selected columns of X_obs using StandardScaler, and leaves others untouched.
+    """
+    Scale selected columns of X_obs using StandardScaler or MinMaxScaler.
+    Leaves time (column 2) unscaled (identity transform) for physics consistency.
 
-    Columns:
-    [0] Latitude
-    [1] Altitude
-    [2] Time
-    [3] Source ID (no scaling)
-    [4] Gamma_EI (no scaling)
+    Column order: [0] Latitude, [1] Altitude, [2] Time, [3] Source ID, [4] Gamma_EI
 
     Returns
     -------
     X_scaled : np.ndarray
         Scaled input array.
     scaler_X : sklearn.compose.ColumnTransformer
-        Fitted transformer for later use on validation/test data.
-
+        Fitted transformer with column order preserved.
     """
-    from sklearn.compose import ColumnTransformer
-    from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
 
+    scaler_cls = StandardScaler if scaler == 'StandardScaler' else MinMaxScaler
+
+    # Identity transform applied to column 2 (time)
+    # Other columns scaled
     scaler_X = ColumnTransformer(
         transformers=[
-            ("scale", StandardScaler() if scaler == 'StandardScaler' else MinMaxScaler(), [0, 1, 2]),
-            ("identity", FunctionTransformer(validate=False), [3, 4])  # identity transform
+            ("lat",     scaler_cls(), [0]),
+            ("alt",     scaler_cls(), [1]),
+            ("time",    FunctionTransformer(validate=False), [2]),  # unscaled
+            ("source",    FunctionTransformer(validate=False), [3]),  # unscaled
+            ("gamma",   scaler_cls(), [4]),
         ]
     )
 
     X_scaled = scaler_X.fit_transform(X_obs)
+    scaler_X.scaler_name = scaler
+
     return X_scaled, scaler_X
 
 
@@ -290,7 +293,7 @@ def train_model(
     train_loader: DataLoader,
     val_loader: DataLoader,
     optimizer: Optimizer,
-    n_epochs: int = 500,
+    n_epochs: int = 300,
     lambda_phys_start: float = 1.0,
     lambda_sup_start: float = 1.0,
     decay_rate: float = 0.95
@@ -340,7 +343,7 @@ def train_model(
         sup_loss_total = 0
 
         # Exponentially decay physics constraint weight
-        lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 50))
+        lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
         lambda_sup = lambda_sup_start
 
         # Deactivate D_pred if harmonic oscillator constrains neural network
@@ -382,7 +385,8 @@ def train_model(
                     create_graph=True
                 )[0]
             
-                residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
+                #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
+                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
                 loss_phys = torch.mean(Wb * residual**2)
             
             else:
@@ -408,59 +412,61 @@ def train_model(
         # Validation
         model.eval()
         val_loss = 0
-        with torch.no_grad():
-            for Xb, Gb, Wb, Tb in val_loader:
-                Gamma = Gb.clamp(min=1e-2)
-                tau_R_pred, D_pred = model(Xb)
+        for Xb, Gb, Wb, Tb in val_loader:
+            Gamma = Gb.clamp(min=1e-2)
+            tau_R_pred, D_pred = model(Xb)
 
-                if PHYSICS_CONSTRAINT == "diffusivity":
-                    if D_pred is None:
-                        raise ValueError("D prediction required for diffusivity-based constraint.")
-                    D_clamped = D_pred.clamp(min=1e-2, max=10.0)
-                    tau_R_phys = 2 * D_clamped**2 / Gamma
-                    loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
-                
-                elif PHYSICS_CONSTRAINT == "harmonic":
-                    time_col = 2  # index of time in input
-                    t = Xb[:, time_col].unsqueeze(1).clone()
-                    t.requires_grad_(True)
-                
-                    # Rebuild Xb_phys with t linked to autograd
-                    Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
-                
-                    tau_R_pred_phys, _ = model(Xb_phys)
-                
-                    dtau_dt = torch.autograd.grad(
-                        tau_R_pred_phys, t,
-                        grad_outputs=torch.ones_like(tau_R_pred_phys),
-                        create_graph=True
-                    )[0]
-                
-                    d2tau_dt2 = torch.autograd.grad(
-                        dtau_dt, t,
-                        grad_outputs=torch.ones_like(dtau_dt),
-                        create_graph=True
-                    )[0]
-                
-                    residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
-                    loss_phys = torch.mean(Wb * residual**2)
-                
-                else:
-                    raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-                    loss_phys = torch.tensor(0.0, device=Xb.device)
+            if PHYSICS_CONSTRAINT == "harmonic":
+                time_col = 2  # index of time in input
+                t = Xb[:, time_col].unsqueeze(1).clone()
+                t.requires_grad_(True)
+            
+                # Rebuild Xb_phys with t linked to autograd
+                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
+            
+                tau_R_pred_phys, _ = model(Xb_phys)
+            
+                dtau_dt = torch.autograd.grad(
+                    tau_R_pred_phys, t,
+                    grad_outputs=torch.ones_like(tau_R_pred_phys),
+                    create_graph=True
+                )[0]
+            
+                d2tau_dt2 = torch.autograd.grad(
+                    dtau_dt, t,
+                    grad_outputs=torch.ones_like(dtau_dt),
+                    create_graph=True
+                )[0]
+            
+                #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
+                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
+                loss_phys = torch.mean(Wb * residual**2)
 
-                loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            else: 
+                with torch.no_grad():
+                    if PHYSICS_CONSTRAINT == "diffusivity":
+                        if D_pred is None:
+                            raise ValueError("D prediction required for diffusivity-based constraint.")
+                        D_clamped = D_pred.clamp(min=1e-2, max=10.0)
+                        tau_R_phys = 2 * D_clamped**2 / Gamma
+                        loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
+                    
+                    else:
+                        raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
+                        loss_phys = torch.tensor(0.0, device=Xb.device)
 
-                loss = lambda_phys * loss_phys + lambda_sup * loss_sup
-                val_loss += loss.item()
+            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+
+            loss = lambda_phys * loss_phys + lambda_sup * loss_sup
+            val_loss += loss.item()
 
         val_losses.append(val_loss)
 
-        if (epoch % 5 == 0) or (epoch==1):
+        if (epoch % 10 == 0) or (epoch==1):
             print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
                   f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
 
-        if (epoch % 100 == 0):
+        if (epoch % 50 == 0):
             save_checkpoint(model, optimizer, checkpoint_dir="checkpoints_v4")
 
     return train_losses, val_losses, physics_losses, supervised_losses
