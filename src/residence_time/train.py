@@ -199,12 +199,14 @@ def scale_variables_columnwise(
 
     # Identity transform applied to column 2 (time)
     # Other columns scaled
+    time_transf = FunctionTransformer(validate=False) if PHYSICS_CONSTRAINT == 'harmonic' else scaler_cls()
+
     scaler_X = ColumnTransformer(
         transformers=[
             ("lat",     scaler_cls(), [0]),
             ("alt",     scaler_cls(), [1]),
-            ("time",    FunctionTransformer(validate=False), [2]),  # unscaled
-            ("source",    FunctionTransformer(validate=False), [3]),  # unscaled
+            ("time",    time_transf, [2]),
+            ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
             ("gamma",   scaler_cls(), [4]),
         ]
     )

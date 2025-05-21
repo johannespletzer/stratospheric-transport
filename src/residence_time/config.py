@@ -19,3 +19,5 @@ OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)
 
 MEAN_TAU = 1.5
 USE_TROPOPAUSE_FEATURES = False
+
+LEARNING_RATE = 1e-4
