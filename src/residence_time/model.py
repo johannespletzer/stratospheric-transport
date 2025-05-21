@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, MEAN_TAU, USE_TROPOPAUSE_FEATURES
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, MEAN_TAU, USE_TROPOPAUSE_FEATURES, PHYSICS_CONSTRAINT
 
 
 class PINNModel(nn.Module):
@@ -46,8 +46,10 @@ class PINNModel(nn.Module):
         time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
     ):
         super().__init__()
-        self.include_D = include_D
-        self.tauR_intercept = nn.Parameter(torch.tensor(MEAN_TAU))
+        self.include_D = include_D if PHYSICS_CONSTRAINT == 'diffusivity' else False
+
+        if PHYSICS_CONSTRAINT == 'harmonic':
+            self.tauR_intercept = nn.Parameter(torch.tensor(MEAN_TAU))
 
         time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
 
@@ -88,6 +90,12 @@ class PINNModel(nn.Module):
             self.D_branch = None
 
         self.softplus = nn.Softplus()
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass through the t_R and optionally D output branches.
