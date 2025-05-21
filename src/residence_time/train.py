@@ -4,14 +4,17 @@ from typing import List, Optional, Tuple
 import numpy as np
 import torch
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, PHYSICS_CONSTRAINT, OMEGA
-from residence_time.utils import save_checkpoint
+from residence_time.config import (
+    DEFAULT_TIME_ENCODING_CONFIG,
+    OMEGA,
+    PHYSICS_CONSTRAINT,
+)
 
 
 def make_loader(
@@ -59,7 +62,7 @@ def make_loader(
     return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
-def scale_variables(X_obs: np.ndarray, default=True) -> Tuple[np.ndarray, MinMaxScaler]:
+def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, MinMaxScaler]:
     """Scale features for model training."""
     if default:
         scaler_X = StandardScaler()
@@ -181,9 +184,7 @@ def scale_variables_columnwise(
     X_obs: np.ndarray,
     scaler: str = 'StandardScaler'
 ) -> Tuple[np.ndarray, ColumnTransformer]:
-    """
-    Scale selected columns of X_obs using StandardScaler or MinMaxScaler.
-    Leaves time (column 2) unscaled (identity transform) for physics consistency.
+    """Scale selected columns of X_obs using StandardScaler or MinMaxScaler.
 
     Column order: [0] Latitude, [1] Altitude, [2] Time, [3] Source ID, [4] Gamma_EI
 
@@ -193,8 +194,8 @@ def scale_variables_columnwise(
         Scaled input array.
     scaler_X : sklearn.compose.ColumnTransformer
         Fitted transformer with column order preserved.
-    """
 
+    """
     scaler_cls = StandardScaler if scaler == 'StandardScaler' else MinMaxScaler
 
     # Identity transform applied to column 2 (time)
@@ -349,8 +350,7 @@ def train_model(
         lambda_sup = lambda_sup_start
 
         # Deactivate D_pred if harmonic oscillator constrains neural network
-        if PHYSICS_CONSTRAINT == "harmonic":
-            model.include_D = False
+        model.include_D = False if PHYSICS_CONSTRAINT == "harmonic" else True
 
         for Xb, Gb, Wb, Tb in train_loader:
             optimizer.zero_grad()  # always do this before backward()
@@ -359,8 +359,8 @@ def train_model(
             tau_R_pred, D_pred = model(Xb)
         
             if PHYSICS_CONSTRAINT == "diffusivity":
-                if D_pred is None:
-                    raise ValueError("D prediction required for diffusivity-based constraint.")
+                assert D_pred is not None, "D prediction required for diffusivity-based constraint."
+
                 D_clamped = D_pred.clamp(min=1e-2, max=10.0)
                 tau_R_phys = 2 * D_clamped**2 / Gamma
                 loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
@@ -418,7 +418,15 @@ def train_model(
             Gamma = Gb.clamp(min=1e-2)
             tau_R_pred, D_pred = model(Xb)
 
-            if PHYSICS_CONSTRAINT == "harmonic":
+            if PHYSICS_CONSTRAINT == 'diffusivity': 
+                with torch.no_grad():
+                    assert D_pred is not None, "D prediction required for diffusivity-based constraint."
+
+                    D_clamped = D_pred.clamp(min=1e-2, max=10.0)
+                    tau_R_phys = 2 * D_clamped**2 / Gamma
+                    loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
+
+            elif PHYSICS_CONSTRAINT == "harmonic":
                 time_col = 2  # index of time in input
                 t = Xb[:, time_col].unsqueeze(1).clone()
                 t.requires_grad_(True)
@@ -443,19 +451,10 @@ def train_model(
                 #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
                 residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
                 loss_phys = torch.mean(Wb * residual**2)
-
-            else: 
-                with torch.no_grad():
-                    if PHYSICS_CONSTRAINT == "diffusivity":
-                        if D_pred is None:
-                            raise ValueError("D prediction required for diffusivity-based constraint.")
-                        D_clamped = D_pred.clamp(min=1e-2, max=10.0)
-                        tau_R_phys = 2 * D_clamped**2 / Gamma
-                        loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
                     
-                    else:
-                        raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-                        loss_phys = torch.tensor(0.0, device=Xb.device)
+            else:
+                raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
+                loss_phys = torch.tensor(0.0, device=Xb.device)
 
             loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
 
@@ -467,8 +466,5 @@ def train_model(
         if (epoch % 10 == 0) or (epoch==1):
             print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
                   f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
-
-        if (epoch % 50 == 0):
-            save_checkpoint(model, optimizer, checkpoint_dir="checkpoints_v4")
 
     return train_losses, val_losses, physics_losses, supervised_losses

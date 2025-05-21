@@ -4,7 +4,12 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, MEAN_TAU, USE_TROPOPAUSE_FEATURES, PHYSICS_CONSTRAINT
+from residence_time.config import (
+    DEFAULT_TIME_ENCODING_CONFIG,
+    MEAN_TAU,
+    PHYSICS_CONSTRAINT,
+    USE_TROPOPAUSE_FEATURES,
+)
 
 
 class PINNModel(nn.Module):
@@ -48,8 +53,7 @@ class PINNModel(nn.Module):
         super().__init__()
         self.include_D = include_D if PHYSICS_CONSTRAINT == 'diffusivity' else False
 
-        if PHYSICS_CONSTRAINT == 'harmonic':
-            self.tauR_intercept = nn.Parameter(torch.tensor(MEAN_TAU))
+        self.tauR_intercept = nn.Parameter(torch.tensor(MEAN_TAU)) if PHYSICS_CONSTRAINT == 'harmonic' else None
 
         time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
 
@@ -57,12 +61,9 @@ class PINNModel(nn.Module):
         effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
 
         if time_encoding_config.get("enabled", False):
-            if time_encoding_config["use_cyclical"]:
-                effective_input_dim += 2
-            if time_encoding_config["use_rbf_seasonal"]:
-                effective_input_dim += time_encoding_config["n_rbf_seasonal"]
-            if time_encoding_config["use_rbf_absolute"]:
-                effective_input_dim += time_encoding_config["n_rbf_absolute"]
+            effective_input_dim += 2 if time_encoding_config["use_cyclical"] else 0
+            effective_input_dim += time_encoding_config["n_rbf_seasonal"] if time_encoding_config["use_rbf_seasonal"] else 0
+            effective_input_dim += time_encoding_config["n_rbf_absolute"] if time_encoding_config["use_rbf_absolute"] else 0
 
         # t_R branch
         layers_tau = []

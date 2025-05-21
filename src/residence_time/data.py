@@ -7,8 +7,8 @@ import xarray as xr
 from aerocalc3 import std_atm
 from scipy.interpolate import RegularGridInterpolator
 
-from residence_time.utils import datetime64_to_year_fraction
 from residence_time.config import USE_TROPOPAUSE_FEATURES
+from residence_time.utils import datetime64_to_year_fraction
 
 
 def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -191,6 +191,9 @@ def load_all_data_combined(
 
     time_range : tuple of str, optional
         Optional time range to apply to satellite/model data.
+
+    trop_features : bool, optional
+        Switch to extend satellite data with tropopause features.
 
     Returns
     -------
