@@ -2,6 +2,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 
+import netCDF4
 import requests
 import xarray as xr
 from bs4 import BeautifulSoup
@@ -120,13 +121,13 @@ def download_files_multithreaded(
 
 
 def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = None) -> xr.Dataset:
-    """Concatenate multiple NetCDF files found in a directory tree into a single xarray.Dataset.
+    """
+    Concatenate valid NetCDF files found in a directory into a single xarray.Dataset.
 
     Parameters
     ----------
     download_dir : str
         Base directory to search for .nc files.
-
     allowed_years : List[str], optional
         If provided, only include files from folders named with these years.
 
@@ -138,8 +139,7 @@ def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = No
     Raises
     ------
     ValueError
-        If no matching .nc files are found.
-
+        If no matching and valid .nc files are found.
     """
     dataset_files = []
     for root, _, files in os.walk(download_dir):
@@ -154,14 +154,28 @@ def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = No
     if not dataset_files:
         raise ValueError(f"No NetCDF files found in {download_dir} with allowed_years={allowed_years}")
 
-    print(f"Opening {len(dataset_files)} NetCDF files...")
+    print(f"Checking {len(dataset_files)} NetCDF files...")
+
+    valid_files = []
+    for path in dataset_files:
+        try:
+            with netCDF4.Dataset(path, "r") as ds:
+                _ = ds.variables["wmo_1st_p"]  # test key variable is present
+            valid_files.append(path)
+        except Exception as e:
+            print(f"Skipping invalid NetCDF: {path} ({e})")
+
+    if not valid_files:
+        raise ValueError("No valid NetCDF files with 'wmo_1st_p' found after filtering.")
+
+    print(f"Opening {len(valid_files)} valid NetCDF files...")
 
     ds = xr.open_mfdataset(
-        dataset_files,
+        valid_files,
         combine="by_coords",
         parallel=True,
         chunks={},
-        preprocess=lambda ds: ds[['wmo_1st_p']]
+        preprocess=lambda ds: ds[["wmo_1st_p"]],
     )
 
     return ds
