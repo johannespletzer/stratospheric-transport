@@ -174,8 +174,9 @@ def plot_field_from_data(
     time_array = np.full_like(lat_grid.flatten(), time_fixed)
     source_array = np.full_like(lat_grid.flatten(), source_fixed)
     gamma_array = np.full_like(lat_grid.flatten(), gamma_fixed)
+    nan_array = np.full_like(lat_grid.flatten(), 1)
 
-    X_base = np.stack([lat_grid.flatten(), alt_grid.flatten(), time_array, source_array, gamma_array], axis=1)
+    X_base = np.stack([lat_grid.flatten(), alt_grid.flatten(), time_array, source_array, gamma_array, nan_array], axis=1)
 
     if use_tropopause_features:
         X_full, _ = extend_with_tropopause_features(X_base, csv_path=tp_csv_path)
@@ -218,6 +219,7 @@ def plot_training_progress(
     val_losses: List[float],
     physics_losses: List[float],
     supervised_losses: List[float],
+    tropopause_losses: List[float],
     log_scale: bool = True,
     save_path: Optional[str] = None
 ) -> None:
@@ -237,6 +239,9 @@ def plot_training_progress(
     supervised_losses : list of float
         Supervised t_R loss values (training).
 
+    tropopause_losses : list of float
+        Tropopause height tau_R penalty (training).
+
     log_scale : bool, default=True
         Use logarithmic scale on the y-axis.
 
@@ -255,6 +260,7 @@ def plot_training_progress(
     plt.plot(epochs, val_losses, label="Val Total", lw=2, linestyle='--')
     plt.plot(epochs, physics_losses, label="Physics Loss (Train)", lw=1.5, linestyle='-.')
     plt.plot(epochs, supervised_losses, label="Supervised t_R Loss (Train)", lw=1.5, linestyle=':')
+    plt.plot(epochs, tropopause_losses, label="TP-height t_R Loss (Train)", lw=1.5, linestyle=':')
 
     if log_scale:
         plt.yscale("log")
