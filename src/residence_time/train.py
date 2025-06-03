@@ -6,14 +6,17 @@ import torch
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
+from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
 from residence_time.config import (
     DEFAULT_TIME_ENCODING_CONFIG,
+    EARLY_STOP_PATIENCE,
     OMEGA,
     PHYSICS_CONSTRAINT,
+    USE_TROPOPAUSE_FEATURES,
 )
 
 
@@ -187,6 +190,7 @@ def scale_variables_columnwise(
     """Scale selected columns of X_obs using StandardScaler or MinMaxScaler.
 
     Column order: [0] Latitude, [1] Altitude, [2] Time, [3] Source ID, [4] Gamma_EI
+                  [5] tau_R nan
 
     Returns
     -------
@@ -200,17 +204,35 @@ def scale_variables_columnwise(
 
     # Identity transform applied to column 2 (time)
     # Other columns scaled
-    time_transf = FunctionTransformer(validate=False) if PHYSICS_CONSTRAINT == 'harmonic' else scaler_cls()
+    #time_transf = FunctionTransformer(validate=False) if PHYSICS_CONSTRAINT == 'harmonic' else scaler_cls()
+    time_transf = FunctionTransformer(validate=False)
 
-    scaler_X = ColumnTransformer(
-        transformers=[
-            ("lat",     scaler_cls(), [0]),
-            ("alt",     scaler_cls(), [1]),
-            ("time",    time_transf, [2]),
-            ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
-            ("gamma",   scaler_cls(), [4]),
-        ]
-    )
+    if USE_TROPOPAUSE_FEATURES:
+        scaler_X = ColumnTransformer(
+            transformers=[
+                ("lat",     scaler_cls(), [0]),
+                ("alt",     scaler_cls(), [1]),
+                ("time",    time_transf, [2]),
+                ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
+                ("gamma",   scaler_cls(), [4]),
+                ("nan_bool",FunctionTransformer(validate=False), [5]),  # unscaled
+                ("tp_trop", scaler_cls(), [6]),
+                ("tp_sh",   scaler_cls(), [7]),
+                ("tp_nh",   scaler_cls(), [8]),
+                ("tp_bool", FunctionTransformer(validate=False), [9]),  # unscaled
+            ]
+        )
+    else:
+        scaler_X = ColumnTransformer(
+            transformers=[
+                ("lat",     scaler_cls(), [0]),
+                ("alt",     scaler_cls(), [1]),
+                ("time",    time_transf, [2]),
+                ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
+                ("gamma",   scaler_cls(), [4]),
+                ("nan_bool",FunctionTransformer(validate=False), [5]),  # unscaled
+            ]
+        )
 
     X_scaled = scaler_X.fit_transform(X_obs)
     scaler_X.scaler_name = scaler
@@ -291,6 +313,129 @@ def create_train_val_loaders(
            make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
 
 
+def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tensor, Wb: Tensor) -> Tensor:
+    """Compute physics-based loss from model predictions.
+
+    Returns
+    -------
+    loss_phys : torch.Tensor
+        The physics residual loss term.
+
+    """
+    if PHYSICS_CONSTRAINT == "diffusivity":
+        D_clamped = D_pred.clamp(min=1e-2, max=10.0)
+        tau_R_phys = 2 * D_clamped**2 / Gamma
+        tau_R_pred, _ = model(Xb)
+        valid = ~torch.isnan(tau_R_pred) & ~torch.isnan(tau_R_phys) & ~torch.isnan(Wb)
+        if valid.any():
+            return torch.mean(Wb[valid] * (tau_R_pred[valid] - tau_R_phys[valid]) ** 2)
+        return torch.tensor(0.0, device=Xb.device)
+
+    elif PHYSICS_CONSTRAINT == "harmonic":
+        time_col = 2
+        t = Xb[:, time_col].unsqueeze(1).clone().requires_grad_(True)
+        Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
+        tau_R_pred_phys, _ = model(Xb_phys)
+        dtau_dt = torch.autograd.grad(tau_R_pred_phys, t, grad_outputs=torch.ones_like(t), create_graph=True)[0]
+        d2tau_dt2 = torch.autograd.grad(dtau_dt, t, grad_outputs=torch.ones_like(t), create_graph=True)[0]
+        residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
+        return torch.mean(Wb * residual**2)
+
+    raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
+
+
+def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str) -> Tensor:
+    """Compute supervised MSE loss where target values are available.
+
+    Returns
+    -------
+    loss_sup : torch.Tensor
+        Supervised loss over non-NaN targets.
+
+    """
+    mask = ~torch.isnan(Tb)
+    if mask.any():
+        return torch.mean((tau_R_pred[mask] - Tb[mask])**2)
+    return torch.tensor(0.0, device=device)
+
+
+def _compute_tropopause_constraint_loss(
+    Xb: Tensor,
+    tau_R_pred: Tensor,
+    tp_cols: Tuple[int, int] = (7, 8)
+) -> Tensor:
+    """
+    Penalize model when τ_R decreases with increasing tropopause pressure.
+    Assumes tropopause pressures (in Pa) are at columns tp_cols.
+
+    We expect d(τ_R)/dP ≥ 0 → penalize if derivative is negative.
+    """
+    total_penalty = 0.0
+    for col in tp_cols:
+        Xb_mod = Xb.detach().clone()
+        Xb_mod[:, col].requires_grad_(True)
+        tp_press = Xb_mod[:, col]
+
+        tau_R_out, _ = model(Xb_mod)
+        grad = torch.autograd.grad(
+            tau_R_out.sum(), tp_press,
+            create_graph=True, retain_graph=True
+        )[0]
+
+        violation = torch.clamp(-grad, min=0.0)  # penalize negative dτ/dP
+        total_penalty += torch.mean(violation**2)
+
+    return total_penalty / len(tp_cols)
+
+
+def _run_epoch(
+    model: Module,
+    dataloader: DataLoader,
+    optimizer: Optional[Optimizer],
+    lambda_phys: float,
+    lambda_sup: float,
+    lambda_tp: float,
+    train: bool
+) -> Tuple[float, float, float]:
+    """Run one training or evaluation epoch.
+
+    Returns
+    -------
+    Tuple of total_loss, physics_loss, supervised_loss.
+
+    """
+    is_training = optimizer is not None
+    model.train() if is_training else model.eval()
+    total_loss, total_phys, total_sup, total_tp = 0.0, 0.0, 0.0, 0.0
+
+    for Xb, Gb, Wb, Tb in dataloader:
+        Gamma = Gb.clamp(min=1e-2)
+        tau_R_pred, D_pred = model(Xb)
+
+        loss_phys = _compute_physics_loss(model, Xb, D_pred, Gamma, Wb)
+        loss_sup = _compute_supervised_loss(tau_R_pred, Tb, device=Xb.device)
+        loss = lambda_phys * loss_phys + lambda_sup * loss_sup
+
+        if USE_TROPOPAUSE_FEATURES:
+            loss_tp = _compute_tropopause_constraint_loss(Xb, tau_R_pred)
+            loss += lambda_tp * loss_tp
+        else:
+            loss_tp = 0.
+
+        if is_training:
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
+        total_loss += loss.item()
+        total_phys += loss_phys.item()
+        total_sup += loss_sup.item()
+        total_tp += loss_tp.item()
+
+    return total_loss, total_phys, total_sup, total_tp
+
+
 def train_model(
     model: Module,
     train_loader: DataLoader,
@@ -298,173 +443,54 @@ def train_model(
     optimizer: Optimizer,
     n_epochs: int = 300,
     lambda_phys_start: float = 1.0,
-    lambda_sup_start: float = 1.0,
+    lambda_sup: float = 1.0,
+    lambda_tp: float = 1.0,
     decay_rate: float = 0.95
 ) -> Tuple[List[float], List[float], List[float], List[float]]:
-    """Train a PINN model using both physics-based and supervised losses.
-
-    Parameters
-    ----------
-    model : torch.nn.Module
-        The PINN model to train.
-
-    train_loader : DataLoader
-        DataLoader for training data.
-
-    val_loader : DataLoader
-        DataLoader for validation data.
-
-    optimizer : torch.optim.Optimizer
-        Optimizer for model parameters.
-
-    n_epochs : int
-        Number of training epochs.
-
-    lambda_phys_start : float
-        Initial weight for physics-based loss.
-
-    lambda_sup_start : float
-        Initial weight for supervised loss.
-
-    decay_rate : float
-        Exponential decay rate for lambda_phys over epochs.
+    """Train a physics-informed model with both supervised and physics losses.
 
     Returns
     -------
-    train_losses : list of float
-    val_losses : list of float
-    physics_losses : list of float
-    supervised_losses : list of float
+    Tuple of lists: train_losses, val_losses, physics_losses, supervised_losses
 
     """
-    train_losses, val_losses, physics_losses, supervised_losses = [], [], [], []
+    train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses = [], [], [], [], []
+    best_val_loss = float("inf")
+    early_stop_counter = 0
 
     for epoch in range(1, n_epochs + 1):
-        model.train()
-        train_loss = 0
-        phys_loss_total = 0
-        sup_loss_total = 0
-
-        # Exponentially decay physics constraint weight
         lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
-        lambda_sup = lambda_sup_start
+        model.include_D = PHYSICS_CONSTRAINT != "harmonic"
 
-        # Deactivate D_pred if harmonic oscillator constrains neural network
-        model.include_D = False if PHYSICS_CONSTRAINT == "harmonic" else True
+        train_loss, phys_loss, sup_loss, tp_loss = _run_epoch(
+            model, train_loader, optimizer, lambda_phys, lambda_sup, lambda_tp, train=True
+        )
 
-        for Xb, Gb, Wb, Tb in train_loader:
-            optimizer.zero_grad()  # always do this before backward()
-        
-            Gamma = Gb.clamp(min=1e-2)
-            tau_R_pred, D_pred = model(Xb)
-        
-            if PHYSICS_CONSTRAINT == "diffusivity":
-                assert D_pred is not None, "D prediction required for diffusivity-based constraint."
-
-                D_clamped = D_pred.clamp(min=1e-2, max=10.0)
-                tau_R_phys = 2 * D_clamped**2 / Gamma
-                loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
-            
-            elif PHYSICS_CONSTRAINT == "harmonic":
-                time_col = 2  # index of time in input
-                t = Xb[:, time_col].unsqueeze(1).clone()
-                t.requires_grad_(True)
-            
-                # Rebuild Xb_phys with t linked to autograd
-                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
-            
-                tau_R_pred_phys, _ = model(Xb_phys)
-            
-                dtau_dt = torch.autograd.grad(
-                    tau_R_pred_phys, t,
-                    grad_outputs=torch.ones_like(tau_R_pred_phys),
-                    create_graph=True
-                )[0]
-            
-                d2tau_dt2 = torch.autograd.grad(
-                    dtau_dt, t,
-                    grad_outputs=torch.ones_like(dtau_dt),
-                    create_graph=True
-                )[0]
-            
-                #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
-                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
-                loss_phys = torch.mean(Wb * residual**2)
-            
-            else:
-                raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-                loss_phys = torch.tensor(0.0, device=Xb.device)
-        
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
-        
-            loss = lambda_phys * loss_phys + lambda_sup * loss_sup
-        
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 🔒 clip here
-            optimizer.step()
-
-            train_loss += loss.item()
-            phys_loss_total += loss_phys.item()
-            sup_loss_total += loss_sup.item()
+        val_loss, val_phys, val_sup, tp_loss = _run_epoch(
+            model, val_loader, optimizer=None, lambda_phys=lambda_phys, lambda_sup=lambda_sup, lambda_tp=lambda_tp, train=False
+        )
 
         train_losses.append(train_loss)
-        physics_losses.append(phys_loss_total)
-        supervised_losses.append(sup_loss_total)
-
-        # Validation
-        model.eval()
-        val_loss = 0
-        for Xb, Gb, Wb, Tb in val_loader:
-            Gamma = Gb.clamp(min=1e-2)
-            tau_R_pred, D_pred = model(Xb)
-
-            if PHYSICS_CONSTRAINT == 'diffusivity': 
-                with torch.no_grad():
-                    assert D_pred is not None, "D prediction required for diffusivity-based constraint."
-
-                    D_clamped = D_pred.clamp(min=1e-2, max=10.0)
-                    tau_R_phys = 2 * D_clamped**2 / Gamma
-                    loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
-
-            elif PHYSICS_CONSTRAINT == "harmonic":
-                time_col = 2  # index of time in input
-                t = Xb[:, time_col].unsqueeze(1).clone()
-                t.requires_grad_(True)
-            
-                # Rebuild Xb_phys with t linked to autograd
-                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
-            
-                tau_R_pred_phys, _ = model(Xb_phys)
-            
-                dtau_dt = torch.autograd.grad(
-                    tau_R_pred_phys, t,
-                    grad_outputs=torch.ones_like(tau_R_pred_phys),
-                    create_graph=True
-                )[0]
-            
-                d2tau_dt2 = torch.autograd.grad(
-                    dtau_dt, t,
-                    grad_outputs=torch.ones_like(dtau_dt),
-                    create_graph=True
-                )[0]
-            
-                #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
-                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
-                loss_phys = torch.mean(Wb * residual**2)
-                    
-            else:
-                raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-                loss_phys = torch.tensor(0.0, device=Xb.device)
-
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
-
-            loss = lambda_phys * loss_phys + lambda_sup * loss_sup
-            val_loss += loss.item()
-
         val_losses.append(val_loss)
+        physics_losses.append(phys_loss)
+        supervised_losses.append(sup_loss)
+        tropopause_losses.append(tp_loss)
 
-        if (epoch % 10 == 0) or (epoch==1):
+        if val_loss < best_val_loss - 1e-4:
+            best_val_loss = val_loss
+            early_stop_counter = 0
+            best_model_state = model.state_dict()
+        else:
+            early_stop_counter += 1
+            if early_stop_counter >= EARLY_STOP_PATIENCE:
+                print(f"Early stopping triggered at epoch {epoch}")
+                break
+
+        if epoch % 10 == 0 or epoch == 1:
             print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
-                  f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
+                  f"Phys Loss: {phys_loss:.2e} | Sup Loss: {sup_loss:.2e} | TP Loss: {tp_loss:.2e}")
 
-    return train_losses, val_losses, physics_losses, supervised_losses
+    if 'best_model_state' in locals():
+        model.load_state_dict(best_model_state)
+
+    return train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses
