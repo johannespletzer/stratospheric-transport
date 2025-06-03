@@ -19,6 +19,7 @@ DEFAULT_TIME_ENCODING_CONFIG = {
 USE_TROPOPAUSE_FEATURES = True
 
 # Model settings
+INPUT_DIM = 7
 HIDDEN_DIM = 32
 HIDDEN_LAYERS = 2
 
@@ -34,4 +35,3 @@ PHYSICS_CONSTRAINT = "diffusivity"  # Options: "harmonic", "diffusivity"
 # Harmonic oscillator settings
 OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)
 MEAN_TAU = 1.5
-
