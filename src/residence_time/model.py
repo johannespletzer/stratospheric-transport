@@ -10,6 +10,7 @@ from residence_time.config import (
     MEAN_TAU,
     PHYSICS_CONSTRAINT,
     USE_TROPOPAUSE_FEATURES,
+    INPUT_DIM,
 )
 
 
@@ -44,7 +45,7 @@ class PINNModel(nn.Module):
 
     def __init__(
         self,
-        input_dim: int = 6,
+        input_dim: int = INPUT_DIM,
         hidden_dim: int = 64,
         hidden_layers: int = 3,
         include_D: bool = True,

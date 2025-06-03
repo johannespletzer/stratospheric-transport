@@ -5,7 +5,12 @@ import numpy as np
 import torch
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler
+from sklearn.preprocessing import (
+    FunctionTransformer,
+    MinMaxScaler,
+    OneHotEncoder,
+    StandardScaler,
+)
 from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
@@ -213,7 +218,7 @@ def scale_variables_columnwise(
                 ("lat",     scaler_cls(), [0]),
                 ("alt",     scaler_cls(), [1]),
                 ("time",    time_transf, [2]),
-                ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
+                ("source", OneHotEncoder(sparse_output=False, handle_unknown="ignore"), [3]),
                 ("gamma",   scaler_cls(), [4]),
                 ("nan_bool",FunctionTransformer(validate=False), [5]),  # unscaled
                 ("tp_trop", scaler_cls(), [6]),
@@ -228,7 +233,7 @@ def scale_variables_columnwise(
                 ("lat",     scaler_cls(), [0]),
                 ("alt",     scaler_cls(), [1]),
                 ("time",    time_transf, [2]),
-                ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
+                ("source", OneHotEncoder(sparse_output=False, handle_unknown="ignore"), [3]),
                 ("gamma",   scaler_cls(), [4]),
                 ("nan_bool",FunctionTransformer(validate=False), [5]),  # unscaled
             ]
@@ -362,29 +367,41 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str) -> Ten
 def _compute_tropopause_constraint_loss(
     model: Module,
     Xb: Tensor,
-    tp_cols: Tuple[int, int] = (7, 8)
+    tp_cols: Tuple[int, int] = (8, 9), # Depends on number of sources in scaler
+    tp_flag_col: int = 10
 ) -> Tensor:
-    """Penalize model when τ_R decreases with increasing tropopause pressure.
-    
-    Assumes tropopause pressures (in hPa) are at columns tp_cols.
+    """
+    Penalize model when τ_R decreases with increasing tropopause pressure.
+
+    Assumes tropopause pressures (hPa) are at columns `tp_cols`.
     We expect d(τ_R)/dP ≥ 0 → penalize if derivative is negative.
     """
     total_penalty = 0.0
     for col in tp_cols:
+        # Clone input and ensure gradient flow
         Xb_mod = Xb.detach().clone()
-        Xb_mod[:, col].requires_grad_(True)
-        tp_press = Xb_mod[:, col]
+        Xb_mod.requires_grad = True  # set requires_grad on whole input
 
         tau_R_out, _ = model(Xb_mod)
         grad = torch.autograd.grad(
-            tau_R_out.sum(), tp_press,
-            create_graph=True, retain_graph=True
+            outputs=tau_R_out.sum(),
+            inputs=Xb_mod,
+            create_graph=True,
+            retain_graph=True
         )[0]
 
-        violation = torch.clamp(-grad, min=0.0)  # penalize negative dτ/dP
-        total_penalty += torch.mean(violation**2)
+    mask = Xb_mod[:, tp_flag_col] > 0  # valid tropopause entries
 
-    return total_penalty / len(tp_cols)
+    for col in tp_cols:
+        if mask.any():
+            grad_tp = grad[:, col]
+            violation = torch.clamp(-grad_tp[mask], min=0.0)
+            total_penalty += torch.mean(violation**2)
+
+    if total_penalty == 0.0:
+        return torch.tensor(0.0, device=Xb.device)
+    else:
+        return total_penalty / len(tp_cols)
 
 
 def _run_epoch(
@@ -430,7 +447,7 @@ def _run_epoch(
         total_loss += loss.item()
         total_phys += loss_phys.item()
         total_sup += loss_sup.item()
-        total_tp += loss_tp.item()
+        total_tp += loss_tp.item() if isinstance(loss_tp, torch.Tensor) else loss_tp
 
     return total_loss, total_phys, total_sup, total_tp
 
