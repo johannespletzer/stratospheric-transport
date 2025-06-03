@@ -5,8 +5,8 @@ Today, age of air and residence time are known concepts of atmospheric transport
 The network is based on:
 - Supervised learning with residence time data 
 - Partly-supervised learning with two optional physics-based constraints
-	- τ_R = 2·D² / Γ
-	- Harmonic oscillator: $\text{residual} = \frac{d^2 \tau_R}{dt^2} + \Omega^2 \left( \tau_R - \tau_0 \right)$
+	- $τ_R = 2·D^2 / \Gamma$
+	- $\text{residual} = \frac{d^2 \tau_R}{dt^2} + \Omega^2 \left( \tau_R - \tau_0 \right)$
 
 ---
 
