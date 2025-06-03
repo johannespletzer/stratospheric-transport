@@ -7,10 +7,13 @@ import torch.nn as nn
 from residence_time.config import (
     DEFAULT_TIME_ENCODING_CONFIG,
     DROPOUT_RATE,
+    HIDDEN_DIM,
+    HIDDEN_LAYERS,
+    INCLUDE_D,
+    INPUT_DIM,
     MEAN_TAU,
     PHYSICS_CONSTRAINT,
     USE_TROPOPAUSE_FEATURES,
-    INPUT_DIM,
 )
 
 
@@ -46,9 +49,9 @@ class PINNModel(nn.Module):
     def __init__(
         self,
         input_dim: int = INPUT_DIM,
-        hidden_dim: int = 64,
-        hidden_layers: int = 3,
-        include_D: bool = True,
+        hidden_dim: int = HIDDEN_DIM,
+        hidden_layers: int = HIDDEN_LAYERS,
+        include_D: bool = INCLUDE_D,
         use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
         time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
     ):
@@ -120,6 +123,6 @@ class PINNModel(nn.Module):
 
         """
         tau_R_pred = self.softplus(self.tauR_branch(x))
-        D_pred = self.softplus(self.D_branch(x)) if self.include_D else None
+        D_pred = self.softplus(self.D_branch(x)) if (self.include_D and self.D_branch is not None) else None
 
         return tau_R_pred, D_pred
