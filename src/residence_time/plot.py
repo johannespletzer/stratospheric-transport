@@ -8,7 +8,11 @@ import torch.nn as nn
 from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, USE_TROPOPAUSE_FEATURES
+from residence_time.config import (
+    DEFAULT_TIME_ENCODING_CONFIG,
+    DEVICE,
+    USE_TROPOPAUSE_FEATURES,
+)
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
 
@@ -17,7 +21,7 @@ def plot_physics_residual(
     model: nn.Module,
     dataloader: DataLoader,
     xlim: Optional[Tuple[float, float]] = None,
-    device: str = 'cuda',
+    device: str = DEVICE,
     return_residuals: bool = False
 ) -> Optional[np.ndarray]:
     """Plot a histogram of physics residuals: t_R^pred - (2·D² / G_EI).
@@ -55,6 +59,10 @@ def plot_physics_residual(
             Gb = Gb.clamp(min=1e-4).to(device)
 
             tau_R_pred, D_pred = model(Xb)
+
+            if D_pred is None:
+                raise ValueError("Model does not output D_pred (include_D=False). Cannot compute physics residual.")
+
             tau_R_phys = 2 * D_pred**2 / Gb
             residuals.append((tau_R_pred - tau_R_phys).cpu().numpy())
 
@@ -101,7 +109,7 @@ def plot_field_from_data(
     time_value: Optional[float] = None,
     source_value: Optional[float] = None,
     gamma_value: Optional[float] = None,
-    device: str = 'cuda',
+    device: str = DEVICE,
     return_data: bool = False,
     use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
     time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
@@ -282,7 +290,7 @@ def plot_training_progress(
 def plot_tau_R_prediction_vs_target(
     model: nn.Module,
     dataloader: DataLoader,
-    device: str = 'cuda'
+    device: str = DEVICE 
 ) -> None:
     """Plot predicted t_R vs. target t_R on a validation batch.
 

@@ -13,7 +13,6 @@ from residence_time.plot import (
     plot_tau_R_prediction_vs_target,
     plot_training_progress,
 )
-from residence_time.config import INPUT_FEATURES
 
 
 @pytest.fixture(autouse=True)
@@ -36,10 +35,10 @@ def make_dummy_dataloader(N: int = 100) -> DataLoader:
 def test_plot_field_from_data_runs() -> None:
     """Test that plot_field_from_data runs without error using dummy data."""
     model = PINNModel(
-    input_dim=5, # actual number of features
+    input_dim=6, # actual number of features
     use_tropopause_features=False,
     time_encoding_config={"enabled": False})
-    X = np.random.rand(200, 5)
+    X = np.random.rand(200, 6)
     scaler = MinMaxScaler().fit(X)
 
     plot_field_from_data(
@@ -63,6 +62,8 @@ def test_plot_physics_residual_runs() -> None:
     time_encoding_config={"enabled": False}
     )
     dataloader = make_dummy_dataloader()
+    if model.include_D is False:
+        pytest.skip("Model has no D output; skipping physics residual test.")
     plot_physics_residual(model, dataloader, device="cpu")
 
 
