@@ -360,14 +360,13 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str) -> Ten
 
 
 def _compute_tropopause_constraint_loss(
+    model: Module,
     Xb: Tensor,
-    tau_R_pred: Tensor,
     tp_cols: Tuple[int, int] = (7, 8)
 ) -> Tensor:
-    """
-    Penalize model when τ_R decreases with increasing tropopause pressure.
-    Assumes tropopause pressures (in Pa) are at columns tp_cols.
-
+    """Penalize model when τ_R decreases with increasing tropopause pressure.
+    
+    Assumes tropopause pressures (in hPa) are at columns tp_cols.
     We expect d(τ_R)/dP ≥ 0 → penalize if derivative is negative.
     """
     total_penalty = 0.0
@@ -417,7 +416,7 @@ def _run_epoch(
         loss = lambda_phys * loss_phys + lambda_sup * loss_sup
 
         if USE_TROPOPAUSE_FEATURES:
-            loss_tp = _compute_tropopause_constraint_loss(Xb, tau_R_pred)
+            loss_tp = _compute_tropopause_constraint_loss(model, Xb)
             loss += lambda_tp * loss_tp
         else:
             loss_tp = 0.

@@ -121,8 +121,7 @@ def download_files_multithreaded(
 
 
 def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = None) -> xr.Dataset:
-    """
-    Concatenate valid NetCDF files found in a directory into a single xarray.Dataset.
+    """Concatenate valid NetCDF files found in a directory into a single xarray.Dataset.
 
     Parameters
     ----------
@@ -140,6 +139,7 @@ def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = No
     ------
     ValueError
         If no matching and valid .nc files are found.
+
     """
     dataset_files = []
     for root, _, files in os.walk(download_dir):
