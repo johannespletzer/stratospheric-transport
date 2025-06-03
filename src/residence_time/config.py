@@ -1,5 +1,6 @@
 import numpy as np
 
+# Feature extension time
 DEFAULT_TIME_ENCODING_CONFIG = {
     "enabled": False,
     "use_cyclical": False,
@@ -14,10 +15,23 @@ DEFAULT_TIME_ENCODING_CONFIG = {
     "time_col": 2
 }
 
-PHYSICS_CONSTRAINT = "diffusivity"  # Options: "harmonic", "diffusivity"
-OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)
+# Feature extension tropopoause
+USE_TROPOPAUSE_FEATURES = True
 
-MEAN_TAU = 1.5
-USE_TROPOPAUSE_FEATURES = False
+# Model settings
+HIDDEN_DIM = 32
+HIDDEN_LAYERS = 2
 
+# Training
+DROPOUT_RATE = 0.3
+WEIGHT_DECAY = 1e-4
 LEARNING_RATE = 1e-4
+EARLY_STOP_PATIENCE = 10
+
+# Physics informed neural network constraint
+PHYSICS_CONSTRAINT = "diffusivity"  # Options: "harmonic", "diffusivity"
+
+# Harmonic oscillator settings
+OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)
+MEAN_TAU = 1.5
+
