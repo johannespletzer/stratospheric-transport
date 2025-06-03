@@ -106,7 +106,7 @@ def plot_field_from_data(
     use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
     time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
     tp_csv_path: Optional[str] = None,
-) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+) -> Optional[np.ndarray]:
     """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
 
     Parameters
@@ -152,8 +152,8 @@ def plot_field_from_data(
 
     Returns
     -------
-    Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]
-        (lat_vals, alt_vals, field_grid) if return_data is True, else None.
+    Optional[np.ndarray]
+        X_full if return_data is True, else None.
 
     """
     time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
@@ -210,7 +210,7 @@ def plot_field_from_data(
     plt.show()
 
     if return_data:
-        return lat_vals, alt_vals, field_grid
+        return X_full 
     return None
 
 
