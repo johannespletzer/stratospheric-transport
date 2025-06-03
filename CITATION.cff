@@ -8,7 +8,7 @@ authors:
 title: stratospheric-transport
 message: >-
   If you use this software, please cite it using the
-  metadata from this file.
+  metadata consistent with CITATION.cff.
 type: software
 abstract: >-
   A Python package to estimate residence time from age of air data. Based 
