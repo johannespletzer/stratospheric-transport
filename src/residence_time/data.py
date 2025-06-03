@@ -24,7 +24,7 @@ def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarr
     Returns
     -------
     X : np.ndarray
-        Input array [N, 5] with columns [lat, alt, time=0, source_id=1, G].
+        Input array [N, 5] with columns [lat, alt, time=0, source_id=2, G].
 
     Gamma : np.ndarray
         Mean age values (G), shape [N,].
@@ -60,7 +60,7 @@ def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarr
     std[use_co2] = std_co2_flat[use_co2]
 
     time = np.zeros_like(age)
-    source = np.ones_like(age)
+    source = np.full_like(age, 2)
 
     valid = ~np.isnan(age) & ~np.isnan(std)
     X = np.stack([lat_flat, alt_flat, time, source, age], axis=1)[valid]
@@ -133,7 +133,7 @@ def load_model_dataset(filepath: str, time_range: Optional[Tuple[str, str]] = No
     Returns
     -------
     X : np.ndarray
-        Input array [N, 5] with [lat, alt_km, time, source_id=2, AOA].
+        Input array [N, 5] with [lat, alt_km, time, source_id=1, AOA].
 
     Gamma : np.ndarray
         AOA values (target), shape [N,].
@@ -155,7 +155,7 @@ def load_model_dataset(filepath: str, time_range: Optional[Tuple[str, str]] = No
     time = datetime64_to_year_fraction(ds["time"].values)
     age = np.transpose(ds["AOA"].values, (0, 2, 1))
     std = np.ones_like(age) * 0.5
-    sou = np.full_like(age, 2)
+    sou = np.full_like(age, 1)
 
     time_grid, lat_grid, alt_grid = np.meshgrid(time, lat, alt, indexing='ij')
     lat_flat, alt_flat, time_flat = lat_grid.flatten(), alt_grid.flatten(), time_grid.flatten()
