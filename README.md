@@ -1,10 +1,12 @@
 # Modeling of Stratospheric Transport
 
-Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network to model **residence time (τ_R)** in the stratosphere using estimates of the **mean age of air (Γ)** from satellite, in-situ, and model datasets. Tropopause reanalysis data can be used as additional features.
+Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network to model **residence time (τ_R)** in the stratosphere using estimates of the **mean age of air (Γ)** from satellite, in-situ, and model datasets. Tropopause reanalysis data can be used as additional features and multiple feature extensions are possible to track changes over time on short and long scales.
 
 The network is based on:
 - Supervised learning with residence time data 
-- Partly-supervised learning with physics-based constraints: τ_R = 2·D² / Γ
+- Partly-supervised learning with two optional physics-based constraints
+	- τ_R = 2·D² / Γ
+	- Harmonic oscillator: $\text{residual} = \frac{d^2 \tau_R}{dt^2} + \Omega^2 \left( \tau_R - \tau_0 \right)$
 
 ---
 
@@ -23,13 +25,6 @@ Install the package
 
 ```bash
 pip install -e .
-```
-
-Check code changes with pytest and ruff before committing to ensure integrity
-
-```bash
-pytest -v
-ruff check src/ scripts/ 
 ```
 
 ---
