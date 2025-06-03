@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from residence_time.config import (
     DEFAULT_TIME_ENCODING_CONFIG,
+    DEVICE,
     EARLY_STOP_PATIENCE,
     OMEGA,
     PHYSICS_CONSTRAINT,
@@ -31,7 +32,7 @@ def make_loader(
     W: np.ndarray,
     tau: np.ndarray,
     batch_size: int,
-    device: str
+    device: str=DEVICE
 ) -> DataLoader:
     """Convert input arrays into a PyTorch DataLoader for training or validation.
 
@@ -252,7 +253,7 @@ def create_train_val_loaders(
     tau_R: Optional[np.ndarray] = None,
     batch_size: int = 256,
     val_split: float = 0.2,
-    device: str = 'cuda',
+    device: str = DEVICE,
     time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
 ) -> Tuple[DataLoader, DataLoader]:
     """Split data into training and validation sets and return DataLoaders.
@@ -327,6 +328,9 @@ def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tens
         The physics residual loss term.
 
     """
+    if D_pred is None:
+        return torch.tensor(0.0, device=Xb.device)
+
     if PHYSICS_CONSTRAINT == "diffusivity":
         D_clamped = D_pred.clamp(min=1e-2, max=10.0)
         tau_R_phys = 2 * D_clamped**2 / Gamma
@@ -349,7 +353,7 @@ def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tens
     raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
 
 
-def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str) -> Tensor:
+def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE) -> Tensor:
     """Compute supervised MSE loss where target values are available.
 
     Returns
@@ -367,30 +371,28 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str) -> Ten
 def _compute_tropopause_constraint_loss(
     model: Module,
     Xb: Tensor,
-    tp_cols: Tuple[int, int] = (8, 9), # Depends on number of sources in scaler
+    tp_cols: Tuple[int, int] = (8, 9),  # adjust as needed
     tp_flag_col: int = 10
 ) -> Tensor:
-    """
-    Penalize model when τ_R decreases with increasing tropopause pressure.
+    """Penalize model when τ_R decreases with increasing tropopause pressure.
 
     Assumes tropopause pressures (hPa) are at columns `tp_cols`.
     We expect d(τ_R)/dP ≥ 0 → penalize if derivative is negative.
     """
+    # Clone input and ensure gradient tracking
+    Xb_mod = Xb.detach().clone()
+    Xb_mod.requires_grad = True
+
+    tau_R_out, _ = model(Xb_mod)
+    grad = torch.autograd.grad(
+        outputs=tau_R_out.sum(),
+        inputs=Xb_mod,
+        create_graph=True,
+        retain_graph=True
+    )[0]
+
+    mask = Xb_mod[:, tp_flag_col] > 0  # only apply penalty where data is valid
     total_penalty = 0.0
-    for col in tp_cols:
-        # Clone input and ensure gradient flow
-        Xb_mod = Xb.detach().clone()
-        Xb_mod.requires_grad = True  # set requires_grad on whole input
-
-        tau_R_out, _ = model(Xb_mod)
-        grad = torch.autograd.grad(
-            outputs=tau_R_out.sum(),
-            inputs=Xb_mod,
-            create_graph=True,
-            retain_graph=True
-        )[0]
-
-    mask = Xb_mod[:, tp_flag_col] > 0  # valid tropopause entries
 
     for col in tp_cols:
         if mask.any():
