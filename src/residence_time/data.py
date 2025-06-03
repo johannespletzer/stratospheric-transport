@@ -173,6 +173,7 @@ def load_all_data_combined(
     sat_paths: Optional[List[str]] = None,
     insitu_paths: Optional[List[str]] = None,
     model_paths: Optional[List[str]] = None,
+    tau_path: Optional[str] = None,
     time_range: Optional[Tuple[str, str]] = None,
     trop_features: bool = USE_TROPOPAUSE_FEATURES
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -188,6 +189,9 @@ def load_all_data_combined(
 
     model_paths : list of str, optional
         Paths to model NetCDF files.
+
+    tau_path : list of str, optional
+        Path to residence_time file.
 
     time_range : tuple of str, optional
         Optional time range to apply to satellite/model data.
@@ -231,13 +235,24 @@ def load_all_data_combined(
             W_all.append(W)
 
     X_out = np.vstack(X_all)
+    Gamma_out = np.concatenate(Gamma_all)
+    W_out = np.concatenate(W_all)
+
+    valid_rows = np.all(np.isfinite(X_out), axis=1) & np.isfinite(Gamma_out) & np.isfinite(W_out)
+    X_out = X_out[valid_rows]
+    Gamma_out = Gamma_out[valid_rows]
+    W_out = W_out[valid_rows]
+
+    if tau_path is not None:
+        X_out, _ = load_tau_R(tau_path, X_out)
+
     if trop_features:
-        X_out = extend_with_tropopause_features(X_out)
+        X_out, _ = extend_with_tropopause_features(X_out)
 
     return (
         X_out,
-        np.concatenate(Gamma_all),
-        np.concatenate(W_all)
+        Gamma_out,
+        W_out
     )
 
 
@@ -254,11 +269,11 @@ def load_tau_R(filename: str, X_obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray
 
     Returns
     -------
+    X_ext : np.ndarray
+        Features extended with identifier of existing values.
+
     tau_R_interp : np.ndarray
         Interpolated t_R values at X_obs locations.
-
-    mask_valid : np.ndarray
-        Boolean mask where interpolation was successful.
 
     """
     ds = xr.open_dataset(filename).ffill('lat')
@@ -270,8 +285,11 @@ def load_tau_R(filename: str, X_obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray
     )
     coords = np.stack([X_obs[:, 1], X_obs[:, 0]], axis=1)
     tau_R_interp = interp(coords)
-    mask_valid = ~np.isnan(tau_R_interp)
-    return tau_R_interp, mask_valid
+
+    valid_flag = (~np.isnan(tau_R_interp)).astype(int).reshape(-1, 1)
+    X_ext = np.hstack([X_obs, valid_flag])
+
+    return X_ext, tau_R_interp
 
 
 def extend_with_tropopause_features(
@@ -292,7 +310,8 @@ def extend_with_tropopause_features(
     -------
     X_ext : np.ndarray
         Extended array [N, 8] with 3 new columns:
-        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
+        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol],
+        and 1 indicator column [tp_features_present].
 
     W : np.ndarray
         Weight vector based on inverse variance of tropopause features.
@@ -312,21 +331,28 @@ def extend_with_tropopause_features(
     tp_values = df.set_index("year_frac")[features]
     tp_stds = df.set_index("year_frac")[stds]
 
+    fallback_vals = np.zeros(len(features))
+    fallback_std = np.ones(len(features))  # std=1 → 1/3 weight
+
     times = X[:, 2]
     sources = X[:, 3]
 
-    X_ext = np.zeros((X.shape[0], 8))
-    W = np.ones(X.shape[0])
-    X_ext[:, :5] = X
+    N = X.shape[0]
+    X_tp = np.zeros((N, 4))  # 3 features + 1 tp_bool
+    W_tp = np.zeros(N)
 
     for i, (t, sid) in enumerate(zip(times, sources)):
-        if sid != 0:
-            X_ext[i, 5:] = 0.0
-            W[i] = 1.0
-        else:
+        if sid == 0:
             nearest_time = tp_values.index[np.abs(tp_values.index - t).argmin()]
-            X_ext[i, 5:] = tp_values.loc[nearest_time].values
+            X_tp[i, :3] = tp_values.loc[nearest_time].values
             std_vals = tp_stds.loc[nearest_time].values
-            W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)
+            X_tp[i, 3] = 1  # tp_bool
+            W_tp[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)
+        else:
+            X_tp[i, :3] = fallback_vals
+            X_tp[i, 3] = 0
+            W_tp[i] = 1.0 / (np.sum(fallback_std**2) + 1e-8)
 
-    return X_ext, W
+    X_ext = np.hstack([X, X_tp])
+
+    return X_ext, W_tp
