@@ -231,13 +231,16 @@ def load_all_data_combined(
             W_all.append(W)
 
     X_out = np.vstack(X_all)
+    W_out = np.concatenate(W_all)
+
     if trop_features:
-        X_out = extend_with_tropopause_features(X_out)
+        X_out, W_tp = extend_with_tropopause_features(X_out)
+        W_out = W_out * W_tp
 
     return (
         X_out,
         np.concatenate(Gamma_all),
-        np.concatenate(W_all)
+        W_out
     )
 
 
