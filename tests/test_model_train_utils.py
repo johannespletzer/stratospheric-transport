@@ -7,6 +7,7 @@ from residence_time.utils import datetime64_to_year_fraction
 
 
 def test_model_forward_pass() -> None:
+    """Check that forward pass returns tau and D with correct shapes."""
     model = PINNModel(
         input_dim=6,
         include_D=True,
@@ -20,6 +21,7 @@ def test_model_forward_pass() -> None:
 
 
 def test_model_forward_without_D() -> None:
+    """Ensure D is omitted from the output when include_D is False."""
     model = PINNModel(
         input_dim=6,
         include_D=False,
