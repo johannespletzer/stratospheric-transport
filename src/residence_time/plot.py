@@ -268,7 +268,7 @@ def plot_training_progress(
 
     if save_path:
         plt.savefig(save_path, dpi=300)
-        print(f"?? Saved training progress plot to: {save_path}")
+        print(f"Saved training progress plot to: {save_path}")
 
     plt.show()
 
