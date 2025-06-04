@@ -235,7 +235,7 @@ def load_all_data_combined(
 
     if trop_features:
         X_out, W_tp = extend_with_tropopause_features(X_out)
-        W_out = W_out * W_tp
+        W_out *= W_tp
 
     return (
         X_out,

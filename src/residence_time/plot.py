@@ -1,3 +1,4 @@
+import logging
 from collections import ChainMap
 from typing import List, Optional, Tuple
 
@@ -11,6 +12,8 @@ from torch.utils.data import DataLoader
 from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, USE_TROPOPAUSE_FEATURES
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
+
+logger = logging.getLogger(__name__)
 
 
 def plot_physics_residual(
@@ -268,7 +271,7 @@ def plot_training_progress(
 
     if save_path:
         plt.savefig(save_path, dpi=300)
-        print(f"Saved training progress plot to: {save_path}")
+        logger.info("Saved training progress plot to: %s", save_path)
 
     plt.show()
 
