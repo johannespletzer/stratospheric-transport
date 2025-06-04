@@ -37,10 +37,10 @@ Download age of air data for training from satellite and in-situ measurements.
 python scripts/download_age_of_air_data.py --output data/age_of_air
 ```
 
-Download tropopause parameters for training. This is optional. Consider using the --output parameter to define a download directory due to the data size.
+Download tropopause parameters for training. This is optional. Consider using the --output parameter to define a download directory due to the data size. The ``--file-limit`` option can be used to restrict the number of files downloaded per year, which is useful for testing.
 
 ```python
-python scripts/download_and_process_era5.py --start-year 1980 --end-year 2018
+python scripts/download_and_process_era5.py --start-year 1980 --end-year 2018 --file-limit 2
 ```
 
 Extract tropopause parameters. Input file and output directory can be declared freely.
