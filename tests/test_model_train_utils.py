@@ -1,9 +1,14 @@
 import numpy as np
+import pytest
 import torch
 
+from residence_time.feature_config import N_BASE_FEATURES
 from residence_time.model import PINNModel
-from residence_time.train import create_train_val_loaders, scale_variables
-from residence_time.feature_config import FeatureIndex, N_BASE_FEATURES
+from residence_time.train import (
+    _compute_supervised_loss,
+    create_train_val_loaders,
+    scale_variables,
+)
 from residence_time.utils import datetime64_to_year_fraction
 
 
@@ -69,3 +74,20 @@ def test_datetime64_to_year_fraction_output() -> None:
     assert isinstance(result, np.ndarray)
     assert result.shape == (2,)
     assert result[1] > result[0]
+
+
+def test_compute_supervised_loss_with_nan_targets() -> None:
+    """Loss should ignore NaNs and run on the specified device."""
+    pred = torch.tensor([[1.0], [2.0], [3.0]])
+    target = torch.tensor([[1.0], [float("nan")], [2.0]])
+    loss = _compute_supervised_loss(pred, target, device="cpu")
+    assert torch.isclose(loss, torch.tensor(0.5))
+    assert loss.device.type == "cpu"
+
+
+def test_compute_supervised_loss_all_nan() -> None:
+    """All-NaN targets should yield zero loss."""
+    pred = torch.tensor([[1.0], [2.0]])
+    target = torch.tensor([[float("nan")], [float("nan")]])
+    loss = _compute_supervised_loss(pred, target, device="cpu")
+    assert loss.item() == pytest.approx(0.0)
