@@ -32,7 +32,8 @@ def make_loader(
     W: np.ndarray,
     tau: np.ndarray,
     batch_size: int,
-    device: str=DEVICE
+    device: str = DEVICE,
+    shuffle: bool = True
 ) -> DataLoader:
     """Convert input arrays into a PyTorch DataLoader for training or validation.
 
@@ -56,6 +57,10 @@ def make_loader(
     device : str
         Device to move tensors to ('cuda' or 'cpu').
 
+    shuffle : bool, default=True
+        If ``True``, the loader will shuffle the dataset at every epoch. Should
+        generally be ``False`` for validation loaders.
+
     Returns
     -------
     DataLoader
@@ -68,7 +73,7 @@ def make_loader(
     tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device)
 
     dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
 def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, MinMaxScaler]:
@@ -286,8 +291,9 @@ def create_train_val_loaders(
     device : str, default='cuda'
         Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
 
-    time_encoding_config : bool, default=DEFAULT_TIME_ENCODING_CONFIG
-        Option to add features for seasonal and long-term trends
+    time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
+        Configuration for adding features related to seasonal and long-term
+        trends.
 
     Returns
     -------
@@ -315,8 +321,23 @@ def create_train_val_loaders(
         X_train = apply_time_encoding(X_train, time_encoding_config)
         X_val = apply_time_encoding(X_val, time_encoding_config)
 
-    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
-           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
+    return make_loader(
+        X_train,
+        Gamma_train,
+        W_train,
+        tau_train,
+        batch_size,
+        device,
+        shuffle=True,
+    ), make_loader(
+        X_val,
+        Gamma_val,
+        W_val,
+        tau_val,
+        batch_size,
+        device,
+        shuffle=False,
+    )
 
 
 def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tensor, Wb: Tensor) -> Tensor:
