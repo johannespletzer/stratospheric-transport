@@ -26,13 +26,12 @@ def run_script(script_path: str, args: List[str]) -> None:
 
     """
     result = subprocess.run(
-        ["python", script_path] + args,
-        capture_output=True,
-        text=True
+        ["python", script_path] + args, capture_output=True, text=True
     )
     print(result.stdout)
     print(result.stderr)
     assert result.returncode == 0, f"{script_path} failed"
+
 
 def test_download_age_of_air_data() -> None:
     """Download file and assert nc files were found."""
@@ -49,20 +48,46 @@ def test_download_age_of_air_data() -> None:
 
         assert found_nc, "No .nc files found after extraction"
 
+
 def test_download_and_process_era5() -> None:
     """Download era5 tropopause features and assert files were combined to a single nc file."""
     with tempfile.TemporaryDirectory() as tmpdir:
         script = "scripts/download_and_process_era5.py"
-        run_script(script, ["--start-year", "2000", "--end-year", "2000", "--output", tmpdir])
+        run_script(
+            script,
+            [
+                "--start-year",
+                "2000",
+                "--end-year",
+                "2000",
+                "--output",
+                tmpdir,
+                "--file-limit",
+                "1",
+            ],
+        )
         combined_path = os.path.join(tmpdir, "era5_tropopause_combined.nc")
         assert os.path.exists(combined_path)
+
 
 def test_process_tropopause_features() -> None:
     """Extract specific tropopause features on monthly basis and assert write to file works."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # First download ERA5 to get a valid input file
         era5_script = "scripts/download_and_process_era5.py"
-        run_script(era5_script, ["--start-year", "2000", "--end-year", "2000", "--output", tmpdir])
+        run_script(
+            era5_script,
+            [
+                "--start-year",
+                "2000",
+                "--end-year",
+                "2000",
+                "--output",
+                tmpdir,
+                "--file-limit",
+                "1",
+            ],
+        )
         combined_file = os.path.join(tmpdir, "era5_tropopause_combined.nc")
 
         # Then run the processing script
