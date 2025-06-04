@@ -291,8 +291,9 @@ def create_train_val_loaders(
     device : str, default='cuda'
         Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
 
-    time_encoding_config : bool, default=DEFAULT_TIME_ENCODING_CONFIG
-        Option to add features for seasonal and long-term trends
+    time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
+        Configuration for adding features related to seasonal and long-term
+        trends.
 
     Returns
     -------
