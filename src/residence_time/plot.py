@@ -13,6 +13,7 @@ from residence_time.config import (
     DEVICE,
     USE_TROPOPAUSE_FEATURES,
 )
+from residence_time.feature_config import FeatureIndex
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
 
@@ -168,23 +169,49 @@ def plot_field_from_data(
     
     model.eval()
 
-    lat_min, lat_max = np.min(X[:, 0]), np.max(X[:, 0])
-    alt_min, alt_max = np.min(X[:, 1]), np.max(X[:, 1])
+    lat_min, lat_max = np.min(X[:, FeatureIndex.LAT]), np.max(
+        X[:, FeatureIndex.LAT]
+    )
+    alt_min, alt_max = np.min(X[:, FeatureIndex.ALT]), np.max(
+        X[:, FeatureIndex.ALT]
+    )
 
     lat_vals = np.linspace(lat_min, lat_max, grid_res[0])
     alt_vals = np.linspace(alt_min, alt_max, grid_res[1])
     lat_grid, alt_grid = np.meshgrid(lat_vals, alt_vals, indexing='ij')
 
-    time_fixed = time_value if time_value is not None else np.median(X[:, 2])
-    source_fixed = source_value if source_value is not None else np.median(X[:, 3])
-    gamma_fixed = gamma_value if gamma_value is not None else np.median(X[:, 4])
+    time_fixed = (
+        time_value
+        if time_value is not None
+        else np.median(X[:, FeatureIndex.TIME])
+    )
+    source_fixed = (
+        source_value
+        if source_value is not None
+        else np.median(X[:, FeatureIndex.SOURCE])
+    )
+    gamma_fixed = (
+        gamma_value
+        if gamma_value is not None
+        else np.median(X[:, FeatureIndex.GAMMA])
+    )
 
     time_array = np.full_like(lat_grid.flatten(), time_fixed)
     source_array = np.full_like(lat_grid.flatten(), source_fixed)
     gamma_array = np.full_like(lat_grid.flatten(), gamma_fixed)
     nan_array = np.full_like(lat_grid.flatten(), 1)
 
-    X_base = np.stack([lat_grid.flatten(), alt_grid.flatten(), time_array, source_array, gamma_array, nan_array], axis=1)
+    X_base = np.stack(
+        [
+            lat_grid.flatten(),
+            alt_grid.flatten(),
+            time_array,
+            source_array,
+            gamma_array,
+            nan_array,
+        ],
+        axis=1,
+    )
 
     if use_tropopause_features:
         X_full, _ = extend_with_tropopause_features(X_base, csv_path=tp_csv_path)

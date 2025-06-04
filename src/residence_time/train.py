@@ -24,6 +24,7 @@ from residence_time.config import (
     PHYSICS_CONSTRAINT,
     USE_TROPOPAUSE_FEATURES,
 )
+from residence_time.feature_config import FeatureIndex
 
 
 def make_loader(
@@ -82,7 +83,9 @@ def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray
     return X_scaled, scaler_X
 
 
-def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
+def add_cyclical_time_features(
+    X: np.ndarray, time_col: int = FeatureIndex.TIME
+) -> np.ndarray:
     """Add sin/cos of fractional year (e.g. 0.25 = spring) to feature array."""
     time_frac = X[:, time_col] % 1  # isolate seasonal phase
     sin_time = np.sin(2 * np.pi * time_frac)
@@ -106,7 +109,7 @@ def rbf_transformer(time: np.ndarray, centers: np.ndarray, gamma: float=100.0) -
 
 def add_rbf_time_features(
     X: np.ndarray,
-    time_col: int = 2,
+    time_col: int = FeatureIndex.TIME,
     kind: str = "seasonal",  # "seasonal" or "absolute"
     n_rbf: int = 12,
     gamma: float = 100.0,
@@ -120,7 +123,7 @@ def add_rbf_time_features(
     X : np.ndarray
         Input features [N, D]
     time_col : int
-        Index of time column (default: 2)
+        Index of time column (default: ``FeatureIndex.TIME``)
     kind : str
         "seasonal" → use time % 1 (cyclical)
         "absolute" → use full time range
@@ -163,7 +166,7 @@ def apply_time_encoding(X: np.ndarray, cfg: dict) -> np.ndarray:
         return X
 
     X_out = X.copy()
-    t_col = cfg["time_col"]
+    t_col = cfg.get("time_col", FeatureIndex.TIME)
     time = X[:, t_col]
 
     features_to_add = []
@@ -216,27 +219,47 @@ def scale_variables_columnwise(
     if USE_TROPOPAUSE_FEATURES:
         scaler_X = ColumnTransformer(
             transformers=[
-                ("lat",     scaler_cls(), [0]),
-                ("alt",     scaler_cls(), [1]),
-                ("time",    time_transf, [2]),
-                ("source", OneHotEncoder(sparse_output=False, handle_unknown="ignore"), [3]),
-                ("gamma",   scaler_cls(), [4]),
-                ("nan_bool",FunctionTransformer(validate=False), [5]),  # unscaled
-                ("tp_trop", scaler_cls(), [6]),
-                ("tp_sh",   scaler_cls(), [7]),
-                ("tp_nh",   scaler_cls(), [8]),
-                ("tp_bool", FunctionTransformer(validate=False), [9]),  # unscaled
+                ("lat", scaler_cls(), [FeatureIndex.LAT]),
+                ("alt", scaler_cls(), [FeatureIndex.ALT]),
+                ("time", time_transf, [FeatureIndex.TIME]),
+                (
+                    "source",
+                    OneHotEncoder(sparse_output=False, handle_unknown="ignore"),
+                    [FeatureIndex.SOURCE],
+                ),
+                ("gamma", scaler_cls(), [FeatureIndex.GAMMA]),
+                (
+                    "nan_bool",
+                    FunctionTransformer(validate=False),
+                    [FeatureIndex.TAU_FLAG],
+                ),
+                ("tp_trop", scaler_cls(), [FeatureIndex.TP_TROPO]),
+                ("tp_sh", scaler_cls(), [FeatureIndex.TP_SH]),
+                ("tp_nh", scaler_cls(), [FeatureIndex.TP_NH]),
+                (
+                    "tp_bool",
+                    FunctionTransformer(validate=False),
+                    [FeatureIndex.TP_FLAG],
+                ),
             ]
         )
     else:
         scaler_X = ColumnTransformer(
             transformers=[
-                ("lat",     scaler_cls(), [0]),
-                ("alt",     scaler_cls(), [1]),
-                ("time",    time_transf, [2]),
-                ("source", OneHotEncoder(sparse_output=False, handle_unknown="ignore"), [3]),
-                ("gamma",   scaler_cls(), [4]),
-                ("nan_bool",FunctionTransformer(validate=False), [5]),  # unscaled
+                ("lat", scaler_cls(), [FeatureIndex.LAT]),
+                ("alt", scaler_cls(), [FeatureIndex.ALT]),
+                ("time", time_transf, [FeatureIndex.TIME]),
+                (
+                    "source",
+                    OneHotEncoder(sparse_output=False, handle_unknown="ignore"),
+                    [FeatureIndex.SOURCE],
+                ),
+                ("gamma", scaler_cls(), [FeatureIndex.GAMMA]),
+                (
+                    "nan_bool",
+                    FunctionTransformer(validate=False),
+                    [FeatureIndex.TAU_FLAG],
+                ),
             ]
         )
 
@@ -341,7 +364,7 @@ def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tens
         return torch.tensor(0.0, device=Xb.device)
 
     elif PHYSICS_CONSTRAINT == "harmonic":
-        time_col = 2
+        time_col = FeatureIndex.TIME
         t = Xb[:, time_col].unsqueeze(1).clone().requires_grad_(True)
         Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
         tau_R_pred_phys, _ = model(Xb_phys)
@@ -371,8 +394,8 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE)
 def _compute_tropopause_constraint_loss(
     model: Module,
     Xb: Tensor,
-    tp_cols: Tuple[int, int] = (8, 9),  # adjust as needed
-    tp_flag_col: int = 10
+    tp_cols: Tuple[int, int] = (FeatureIndex.TP_SH, FeatureIndex.TP_NH),
+    tp_flag_col: int = FeatureIndex.TP_FLAG
 ) -> Tensor:
     """Penalize model when τ_R decreases with increasing tropopause pressure.
 

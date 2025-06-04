@@ -13,6 +13,7 @@ from residence_time.plot import (
     plot_tau_R_prediction_vs_target,
     plot_training_progress,
 )
+from residence_time.feature_config import FeatureIndex, N_BASE_FEATURES
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +25,7 @@ def mock_show() -> None:
 
 def make_dummy_dataloader(N: int = 100) -> DataLoader:
     """Create a dummy DataLoader with random values for model input/output."""
-    X = torch.rand(N, 5)
+    X = torch.rand(N, FeatureIndex.GAMMA + 1)
     Gamma = torch.rand(N, 1)
     W = torch.ones(N, 1)
     tau = torch.rand(N, 1)
@@ -35,10 +36,10 @@ def make_dummy_dataloader(N: int = 100) -> DataLoader:
 def test_plot_field_from_data_runs() -> None:
     """Test that plot_field_from_data runs without error using dummy data."""
     model = PINNModel(
-    input_dim=6, # actual number of features
+    input_dim=N_BASE_FEATURES, # actual number of features
     use_tropopause_features=False,
     time_encoding_config={"enabled": False})
-    X = np.random.rand(200, 6)
+    X = np.random.rand(200, N_BASE_FEATURES)
     scaler = MinMaxScaler().fit(X)
 
     plot_field_from_data(
@@ -57,7 +58,7 @@ def test_plot_field_from_data_runs() -> None:
 def test_plot_physics_residual_runs() -> None:
     """Test that plot_physics_residual executes with dummy data."""
     model = PINNModel(
-    input_dim=5,
+    input_dim=FeatureIndex.GAMMA + 1,
     use_tropopause_features=False,
     time_encoding_config={"enabled": False}
     )
@@ -70,7 +71,7 @@ def test_plot_physics_residual_runs() -> None:
 def test_plot_tau_R_prediction_vs_target_runs() -> None:
     """Test that the τ_R prediction vs target plot function runs successfully."""
     model = PINNModel(
-    input_dim=5,
+    input_dim=FeatureIndex.GAMMA + 1,
     use_tropopause_features=False,
     time_encoding_config={"enabled": False}
     )
