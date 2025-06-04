@@ -363,12 +363,34 @@ def create_train_val_loaders(
     )
 
 
-def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tensor, Wb: Tensor) -> Tensor:
+def _compute_physics_loss(
+    model: Module,
+    Xb: Tensor,
+    tau_R_pred: Tensor,
+    D_pred: Tensor,
+    Gamma: Tensor,
+    Wb: Tensor,
+) -> Tensor:
     """Compute physics-based loss from model predictions.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The network used to generate predictions.
+    Xb : torch.Tensor
+        Batch of input features.
+    tau_R_pred : torch.Tensor
+        Predicted residence time from a prior forward pass.
+    D_pred : torch.Tensor
+        Predicted diffusivity from the same forward pass.
+    Gamma : torch.Tensor
+        Mean age of air values used in the diffusivity constraint.
+    Wb : torch.Tensor
+        Sample weights for the physics loss term.
 
     Returns
     -------
-    loss_phys : torch.Tensor
+    torch.Tensor
         The physics residual loss term.
 
     """
@@ -378,7 +400,6 @@ def _compute_physics_loss(model: Module, Xb: Tensor, D_pred: Tensor, Gamma: Tens
     if PHYSICS_CONSTRAINT == "diffusivity":
         D_clamped = D_pred.clamp(min=1e-2, max=10.0)
         tau_R_phys = 2 * D_clamped**2 / Gamma
-        tau_R_pred, _ = model(Xb)
         valid = ~torch.isnan(tau_R_pred) & ~torch.isnan(tau_R_phys) & ~torch.isnan(Wb)
         if valid.any():
             return torch.mean(Wb[valid] * (tau_R_pred[valid] - tau_R_phys[valid]) ** 2)
@@ -474,7 +495,7 @@ def _run_epoch(
         Gamma = Gb.clamp(min=1e-2)
         tau_R_pred, D_pred = model(Xb)
 
-        loss_phys = _compute_physics_loss(model, Xb, D_pred, Gamma, Wb)
+        loss_phys = _compute_physics_loss(model, Xb, tau_R_pred, D_pred, Gamma, Wb)
         loss_sup = _compute_supervised_loss(tau_R_pred, Tb, device=Xb.device)
         loss = lambda_phys * loss_phys + lambda_sup * loss_sup
 
