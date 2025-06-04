@@ -291,6 +291,15 @@ def create_train_val_loaders(
            make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
 
 
+def compute_supervised_loss(pred: torch.Tensor, target: Optional[torch.Tensor]) -> torch.Tensor:
+    """Return MSE between ``pred`` and ``target`` ignoring NaNs."""
+    if target is None or torch.isnan(target).all():
+        return torch.tensor(0.0, device=pred.device)
+
+    mask = ~torch.isnan(target)
+    return torch.mean((pred[mask] - target[mask]) ** 2)
+
+
 def train_model(
     model: Module,
     train_loader: DataLoader,
@@ -395,7 +404,7 @@ def train_model(
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
                 loss_phys = torch.tensor(0.0, device=Xb.device)
         
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            loss_sup = compute_supervised_loss(tau_R_pred, Tb)
         
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
         
@@ -456,7 +465,7 @@ def train_model(
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
                 loss_phys = torch.tensor(0.0, device=Xb.device)
 
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            loss_sup = compute_supervised_loss(tau_R_pred, Tb)
 
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
             val_loss += loss.item()
