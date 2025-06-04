@@ -8,6 +8,7 @@ from aerocalc3 import std_atm
 from scipy.interpolate import RegularGridInterpolator
 
 from residence_time.config import USE_TROPOPAUSE_FEATURES
+from residence_time.feature_config import FeatureIndex
 from residence_time.utils import datetime64_to_year_fraction
 
 
@@ -283,7 +284,10 @@ def load_tau_R(filename: str, X_obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray
         bounds_error=False,
         fill_value=np.nan
     )
-    coords = np.stack([X_obs[:, 1], X_obs[:, 0]], axis=1)
+    coords = np.stack(
+        [X_obs[:, FeatureIndex.ALT], X_obs[:, FeatureIndex.LAT]],
+        axis=1,
+    )
     tau_R_interp = interp(coords)
 
     valid_flag = (~np.isnan(tau_R_interp)).astype(int).reshape(-1, 1)
@@ -334,8 +338,8 @@ def extend_with_tropopause_features(
     fallback_vals = np.zeros(len(features))
     fallback_std = np.ones(len(features))  # std=1 → 1/3 weight
 
-    times = X[:, 2]
-    sources = X[:, 3]
+    times = X[:, FeatureIndex.TIME]
+    sources = X[:, FeatureIndex.SOURCE]
 
     N = X.shape[0]
     X_tp = np.zeros((N, 4))  # 3 features + 1 tp_bool

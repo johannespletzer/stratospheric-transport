@@ -11,8 +11,7 @@ DEFAULT_TIME_ENCODING_CONFIG = {
     "gamma_seasonal": 100.0,
     "gamma_absolute": 5.0,
     "t_min": 1980.0,
-    "t_max": 2025.0,
-    "time_col": 2
+    "t_max": 2025.0
 }
 
 # Feature extension tropopoause
