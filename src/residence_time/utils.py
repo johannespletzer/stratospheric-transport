@@ -13,6 +13,8 @@ import torch.optim as optim
 import xarray as xr
 from sklearn.base import BaseEstimator
 
+from residence_time.config import DEVICE
+
 
 def datetime64_to_year_fraction(
     t: Union[np.ndarray, xr.DataArray]
@@ -67,7 +69,7 @@ def year_fraction_to_datetime64(
 def load_checkpoint(
     model: nn.Module,
     checkpoint_path: str,
-    device: str = 'cuda',
+    device: str = DEVICE,
     optimizer: Optional[optim.Optimizer] = None,
     return_scaler: bool = False
 ) -> Optional[object]:
@@ -110,7 +112,7 @@ def load_checkpoint(
 
 def load_latest_checkpoint(
     model: nn.Module,
-    device: str = 'cuda',
+    device: str = DEVICE,
     optimizer: Optional[optim.Optimizer] = None,
     checkpoint_dir: Optional[str] = None,
     return_scaler: bool = False

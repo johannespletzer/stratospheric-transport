@@ -9,10 +9,14 @@ import torch.nn as nn
 from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
-from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, USE_TROPOPAUSE_FEATURES
+from residence_time.config import (
+    DEFAULT_TIME_ENCODING_CONFIG,
+    DEVICE,
+    USE_TROPOPAUSE_FEATURES,
+)
+from residence_time.feature_config import FeatureIndex
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
-
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +24,7 @@ def plot_physics_residual(
     model: nn.Module,
     dataloader: DataLoader,
     xlim: Optional[Tuple[float, float]] = None,
-    device: str = 'cuda',
+    device: str = DEVICE,
     return_residuals: bool = False
 ) -> Optional[np.ndarray]:
     """Plot a histogram of physics residuals: t_R^pred - (2·D² / G_EI).
@@ -58,6 +62,10 @@ def plot_physics_residual(
             Gb = Gb.clamp(min=1e-4).to(device)
 
             tau_R_pred, D_pred = model(Xb)
+
+            if D_pred is None:
+                raise ValueError("Model does not output D_pred (include_D=False). Cannot compute physics residual.")
+
             tau_R_phys = 2 * D_pred**2 / Gb
             residuals.append((tau_R_pred - tau_R_phys).cpu().numpy())
 
@@ -104,12 +112,12 @@ def plot_field_from_data(
     time_value: Optional[float] = None,
     source_value: Optional[float] = None,
     gamma_value: Optional[float] = None,
-    device: str = 'cuda',
+    device: str = DEVICE,
     return_data: bool = False,
     use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
     time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
     tp_csv_path: Optional[str] = None,
-) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+) -> Optional[np.ndarray]:
     """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
 
     Parameters
@@ -155,30 +163,57 @@ def plot_field_from_data(
 
     Returns
     -------
-    Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]
-        (lat_vals, alt_vals, field_grid) if return_data is True, else None.
+    Optional[np.ndarray]
+        X_full if return_data is True, else None.
 
     """
     time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
     
     model.eval()
 
-    lat_min, lat_max = np.min(X[:, 0]), np.max(X[:, 0])
-    alt_min, alt_max = np.min(X[:, 1]), np.max(X[:, 1])
+    lat_min, lat_max = np.min(X[:, FeatureIndex.LAT]), np.max(
+        X[:, FeatureIndex.LAT]
+    )
+    alt_min, alt_max = np.min(X[:, FeatureIndex.ALT]), np.max(
+        X[:, FeatureIndex.ALT]
+    )
 
     lat_vals = np.linspace(lat_min, lat_max, grid_res[0])
     alt_vals = np.linspace(alt_min, alt_max, grid_res[1])
     lat_grid, alt_grid = np.meshgrid(lat_vals, alt_vals, indexing='ij')
 
-    time_fixed = time_value if time_value is not None else np.median(X[:, 2])
-    source_fixed = source_value if source_value is not None else np.median(X[:, 3])
-    gamma_fixed = gamma_value if gamma_value is not None else np.median(X[:, 4])
+    time_fixed = (
+        time_value
+        if time_value is not None
+        else np.median(X[:, FeatureIndex.TIME])
+    )
+    source_fixed = (
+        source_value
+        if source_value is not None
+        else np.median(X[:, FeatureIndex.SOURCE])
+    )
+    gamma_fixed = (
+        gamma_value
+        if gamma_value is not None
+        else np.median(X[:, FeatureIndex.GAMMA])
+    )
 
     time_array = np.full_like(lat_grid.flatten(), time_fixed)
     source_array = np.full_like(lat_grid.flatten(), source_fixed)
     gamma_array = np.full_like(lat_grid.flatten(), gamma_fixed)
+    nan_array = np.full_like(lat_grid.flatten(), 1)
 
-    X_base = np.stack([lat_grid.flatten(), alt_grid.flatten(), time_array, source_array, gamma_array], axis=1)
+    X_base = np.stack(
+        [
+            lat_grid.flatten(),
+            alt_grid.flatten(),
+            time_array,
+            source_array,
+            gamma_array,
+            nan_array,
+        ],
+        axis=1,
+    )
 
     if use_tropopause_features:
         X_full, _ = extend_with_tropopause_features(X_base, csv_path=tp_csv_path)
@@ -212,7 +247,7 @@ def plot_field_from_data(
     plt.show()
 
     if return_data:
-        return lat_vals, alt_vals, field_grid
+        return X_full 
     return None
 
 
@@ -221,6 +256,7 @@ def plot_training_progress(
     val_losses: List[float],
     physics_losses: List[float],
     supervised_losses: List[float],
+    tropopause_losses: List[float],
     log_scale: bool = True,
     save_path: Optional[str] = None
 ) -> None:
@@ -240,6 +276,9 @@ def plot_training_progress(
     supervised_losses : list of float
         Supervised t_R loss values (training).
 
+    tropopause_losses : list of float
+        Tropopause height tau_R penalty (training).
+
     log_scale : bool, default=True
         Use logarithmic scale on the y-axis.
 
@@ -258,6 +297,7 @@ def plot_training_progress(
     plt.plot(epochs, val_losses, label="Val Total", lw=2, linestyle='--')
     plt.plot(epochs, physics_losses, label="Physics Loss (Train)", lw=1.5, linestyle='-.')
     plt.plot(epochs, supervised_losses, label="Supervised t_R Loss (Train)", lw=1.5, linestyle=':')
+    plt.plot(epochs, tropopause_losses, label="TP-height t_R Loss (Train)", lw=1.5, linestyle=':')
 
     if log_scale:
         plt.yscale("log")
@@ -279,7 +319,7 @@ def plot_training_progress(
 def plot_tau_R_prediction_vs_target(
     model: nn.Module,
     dataloader: DataLoader,
-    device: str = 'cuda'
+    device: str = DEVICE 
 ) -> None:
     """Plot predicted t_R vs. target t_R on a validation batch.
 

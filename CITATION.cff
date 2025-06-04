@@ -8,7 +8,7 @@ authors:
 title: stratospheric-transport
 message: >-
   If you use this software, please cite it using the
-  metadata from this file.
+  metadata consistent with CITATION.cff.
 type: software
 abstract: >-
   A Python package to estimate residence time from age of air data. Based 
@@ -22,9 +22,8 @@ keywords:
   - aircraft
   - emission
   - stratosphere
-  - response model
 license: CC BY-NC-ND 4.0
-version: '0.2'
+version: '0.3'
 cff-version: 1.2.0
 
 references:

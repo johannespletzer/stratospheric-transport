@@ -6,6 +6,11 @@ import torch.nn as nn
 
 from residence_time.config import (
     DEFAULT_TIME_ENCODING_CONFIG,
+    DROPOUT_RATE,
+    HIDDEN_DIM,
+    HIDDEN_LAYERS,
+    INCLUDE_D,
+    INPUT_DIM,
     MEAN_TAU,
     PHYSICS_CONSTRAINT,
     USE_TROPOPAUSE_FEATURES,
@@ -43,10 +48,10 @@ class PINNModel(nn.Module):
 
     def __init__(
         self,
-        input_dim: int = 5,
-        hidden_dim: int = 64,
-        hidden_layers: int = 3,
-        include_D: bool = True,
+        input_dim: int = INPUT_DIM,
+        hidden_dim: int = HIDDEN_DIM,
+        hidden_layers: int = HIDDEN_LAYERS,
+        include_D: bool = INCLUDE_D,
         use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
         time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
     ):
@@ -58,7 +63,7 @@ class PINNModel(nn.Module):
         time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
 
         # Adjust input dimension if other features are included
-        effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
+        effective_input_dim = input_dim + (4 if use_tropopause_features else 0)
 
         if time_encoding_config.get("enabled", False):
             effective_input_dim += 2 if time_encoding_config["use_cyclical"] else 0
@@ -72,6 +77,7 @@ class PINNModel(nn.Module):
             layers_tau.append(nn.Linear(in_dim, hidden_dim))
             layers_tau.append(nn.BatchNorm1d(hidden_dim))
             layers_tau.append(nn.Tanh())
+            layers_tau.append(nn.Dropout(DROPOUT_RATE))
             in_dim = hidden_dim
         layers_tau.append(nn.Linear(in_dim, 1))
         self.tauR_branch = nn.Sequential(*layers_tau)
@@ -84,6 +90,7 @@ class PINNModel(nn.Module):
                 layers_D.append(nn.Linear(in_dim, hidden_dim))
                 layers_D.append(nn.BatchNorm1d(hidden_dim))
                 layers_D.append(nn.Tanh())
+                layers_D.append(nn.Dropout(DROPOUT_RATE))
                 in_dim = hidden_dim
             layers_D.append(nn.Linear(in_dim, 1))
             self.D_branch = nn.Sequential(*layers_D)
@@ -116,5 +123,6 @@ class PINNModel(nn.Module):
 
         """
         tau_R_pred = self.softplus(self.tauR_branch(x))
-        D_pred = self.softplus(self.D_branch(x)) if self.include_D else None
+        D_pred = self.softplus(self.D_branch(x)) if (self.include_D and self.D_branch is not None) else None
+
         return tau_R_pred, D_pred
