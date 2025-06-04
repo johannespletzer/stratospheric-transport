@@ -34,7 +34,7 @@ def make_loader(
     tau: np.ndarray,
     batch_size: int,
     device: str = DEVICE,
-    shuffle: bool = True
+    shuffle: bool = True,
 ) -> DataLoader:
     """Convert input arrays into a PyTorch DataLoader for training or validation.
 
@@ -77,7 +77,9 @@ def make_loader(
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
-def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, MinMaxScaler]:
+def scale_variables(
+    X_obs: np.ndarray, default: bool = True
+) -> Tuple[np.ndarray, MinMaxScaler]:
     """Scale features for model training."""
     if default:
         scaler_X = StandardScaler()
@@ -98,13 +100,15 @@ def add_cyclical_time_features(
     return np.concatenate([X, sin_time[:, None], cos_time[:, None]], axis=1)
 
 
-def rbf_transformer(time: np.ndarray, centers: np.ndarray, gamma: float=100.0) -> np.ndarray:
+def rbf_transformer(
+    time: np.ndarray, centers: np.ndarray, gamma: float = 100.0
+) -> np.ndarray:
     """Return radial basis functions for input values.
-    
+
     time: (N,) input values
     centers: (M,) RBF centers
     gamma: float, controls width of each basis function
-    
+
     Returns: (N, M) RBF matrix
     """
     time = time[:, None]  # (N, 1)
@@ -119,7 +123,7 @@ def add_rbf_time_features(
     n_rbf: int = 12,
     gamma: float = 100.0,
     t_min: float = 1980.0,
-    t_max: float = 2025.0
+    t_max: float = 2025.0,
 ) -> np.ndarray:
     """Add RBF time features to input array.
 
@@ -198,8 +202,7 @@ def apply_time_encoding(X: np.ndarray, cfg: dict) -> np.ndarray:
 
 
 def scale_variables_columnwise(
-    X_obs: np.ndarray,
-    scaler: str = 'StandardScaler'
+    X_obs: np.ndarray, scaler: str = "StandardScaler"
 ) -> Tuple[np.ndarray, ColumnTransformer]:
     """Scale selected columns of X_obs using StandardScaler or MinMaxScaler.
 
@@ -214,11 +217,11 @@ def scale_variables_columnwise(
         Fitted transformer with column order preserved.
 
     """
-    scaler_cls = StandardScaler if scaler == 'StandardScaler' else MinMaxScaler
+    scaler_cls = StandardScaler if scaler == "StandardScaler" else MinMaxScaler
 
     # Identity transform applied to column 2 (time)
     # Other columns scaled
-    #time_transf = FunctionTransformer(validate=False) if PHYSICS_CONSTRAINT == 'harmonic' else scaler_cls()
+    # time_transf = FunctionTransformer(validate=False) if PHYSICS_CONSTRAINT == 'harmonic' else scaler_cls()
     time_transf = FunctionTransformer(validate=False)
 
     if USE_TROPOPAUSE_FEATURES:
@@ -282,12 +285,12 @@ def create_train_val_loaders(
     batch_size: int = 256,
     val_split: float = 0.2,
     device: str = DEVICE,
-    time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
+    time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG,
 ) -> Tuple[DataLoader, DataLoader]:
     """Split data into training and validation sets and return DataLoaders.
 
-    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples 
-    for use in training a PINN model. If no tau_R targets are provided, the 
+    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples
+    for use in training a PINN model. If no tau_R targets are provided, the
     function fills them with NaNs for compatibility.
 
     Parameters
@@ -328,8 +331,8 @@ def create_train_val_loaders(
 
     """
     if tau_R is not None:
-        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
-            X, Gamma, W, tau_R, test_size=val_split, random_state=42
+        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = (
+            train_test_split(X, Gamma, W, tau_R, test_size=val_split, random_state=42)
         )
     else:
         X_train, X_val, Gamma_train, Gamma_val, W_train, W_val = train_test_split(
@@ -338,7 +341,9 @@ def create_train_val_loaders(
         tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
         tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
 
-    time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
+    time_encoding_config = dict(
+        ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG)
+    )
 
     if time_encoding_config.get("enabled", False):
         X_train = apply_time_encoding(X_train, time_encoding_config)
@@ -408,17 +413,25 @@ def _compute_physics_loss(
     elif PHYSICS_CONSTRAINT == "harmonic":
         time_col = FeatureIndex.TIME
         t = Xb[:, time_col].unsqueeze(1).clone().requires_grad_(True)
-        Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
+        Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col + 1 :]], dim=1)
         tau_R_pred_phys, _ = model(Xb_phys)
-        dtau_dt = torch.autograd.grad(tau_R_pred_phys, t, grad_outputs=torch.ones_like(t), create_graph=True)[0]
-        d2tau_dt2 = torch.autograd.grad(dtau_dt, t, grad_outputs=torch.ones_like(t), create_graph=True)[0]
-        residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
+        dtau_dt = torch.autograd.grad(
+            tau_R_pred_phys, t, grad_outputs=torch.ones_like(t), create_graph=True
+        )[0]
+        d2tau_dt2 = torch.autograd.grad(
+            dtau_dt, t, grad_outputs=torch.ones_like(t), create_graph=True
+        )[0]
+        residual = d2tau_dt2 + (OMEGA**2) * (tau_R_pred_phys - model.tauR_intercept)
         return torch.mean(Wb * residual**2)
 
     raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
 
 
-def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE) -> Tensor:
+def _compute_supervised_loss(
+    tau_R_pred: Tensor,
+    target: Tensor,
+    device: str = DEVICE,
+) -> Tensor:
     """Compute supervised MSE loss where target values are available.
 
     Returns
@@ -428,17 +441,17 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE)
 
     """
     if target is None or torch.isnan(target).all():
-        return torch.tensor(0.0, device=pred.device)
+        return torch.tensor(0.0, device=device)
 
     mask = ~torch.isnan(target)
-    return torch.mean((pred[mask] - target[mask]) ** 2)
+    return torch.mean((tau_R_pred[mask] - target[mask]) ** 2)
 
 
 def _compute_tropopause_constraint_loss(
     model: Module,
     Xb: Tensor,
     tp_cols: Tuple[int, int] = (FeatureIndex.TP_SH, FeatureIndex.TP_NH),
-    tp_flag_col: int = FeatureIndex.TP_FLAG
+    tp_flag_col: int = FeatureIndex.TP_FLAG,
 ) -> Tensor:
     """Penalize model when τ_R decreases with increasing tropopause pressure.
 
@@ -451,10 +464,7 @@ def _compute_tropopause_constraint_loss(
 
     tau_R_out, _ = model(Xb_mod)
     grad = torch.autograd.grad(
-        outputs=tau_R_out.sum(),
-        inputs=Xb_mod,
-        create_graph=True,
-        retain_graph=True
+        outputs=tau_R_out.sum(), inputs=Xb_mod, create_graph=True, retain_graph=True
     )[0]
 
     mask = Xb_mod[:, tp_flag_col] > 0  # only apply penalty where data is valid
@@ -479,7 +489,7 @@ def _run_epoch(
     lambda_phys: float,
     lambda_sup: float,
     lambda_tp: float,
-    train: bool
+    train: bool,
 ) -> Tuple[float, float, float]:
     """Run one training or evaluation epoch.
 
@@ -504,7 +514,7 @@ def _run_epoch(
             loss_tp = _compute_tropopause_constraint_loss(model, Xb)
             loss += lambda_tp * loss_tp
         else:
-            loss_tp = 0.
+            loss_tp = 0.0
 
         if is_training:
             optimizer.zero_grad()
@@ -518,7 +528,7 @@ def _run_epoch(
         total_tp += loss_tp.item() if isinstance(loss_tp, torch.Tensor) else loss_tp
 
     return total_loss, total_phys, total_sup, total_tp
-  
+
 
 def train_model(
     model: Module,
@@ -529,7 +539,7 @@ def train_model(
     lambda_phys_start: float = 1.0,
     lambda_sup: float = 1.0,
     lambda_tp: float = 1.0,
-    decay_rate: float = 0.95
+    decay_rate: float = 0.95,
 ) -> Tuple[List[float], List[float], List[float], List[float]]:
     """Train a physics-informed model with both supervised and physics losses.
 
@@ -538,7 +548,13 @@ def train_model(
     Tuple of lists: train_losses, val_losses, physics_losses, supervised_losses
 
     """
-    train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses = [], [], [], [], []
+    train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     best_val_loss = float("inf")
     early_stop_counter = 0
 
@@ -547,11 +563,23 @@ def train_model(
         model.include_D = PHYSICS_CONSTRAINT != "harmonic"
 
         train_loss, phys_loss, sup_loss, tp_loss = _run_epoch(
-            model, train_loader, optimizer, lambda_phys, lambda_sup, lambda_tp, train=True
+            model,
+            train_loader,
+            optimizer,
+            lambda_phys,
+            lambda_sup,
+            lambda_tp,
+            train=True,
         )
 
         val_loss, val_phys, val_sup, tp_loss = _run_epoch(
-            model, val_loader, optimizer=None, lambda_phys=lambda_phys, lambda_sup=lambda_sup, lambda_tp=lambda_tp, train=False
+            model,
+            val_loader,
+            optimizer=None,
+            lambda_phys=lambda_phys,
+            lambda_sup=lambda_sup,
+            lambda_tp=lambda_tp,
+            train=False,
         )
 
         train_losses.append(train_loss)
@@ -571,10 +599,143 @@ def train_model(
                 break
 
         if epoch % 10 == 0 or epoch == 1:
-            print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
-                  f"Phys Loss: {phys_loss:.2e} | Sup Loss: {sup_loss:.2e} | TP Loss: {tp_loss:.2e}")
+            print(
+                f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
+                f"Phys Loss: {phys_loss:.2e} | Sup Loss: {sup_loss:.2e} | TP Loss: {tp_loss:.2e}"
+            )
 
-    if 'best_model_state' in locals():
+    if "best_model_state" in locals():
         model.load_state_dict(best_model_state)
 
-    return train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses
+    return (
+        train_losses,
+        val_losses,
+        physics_losses,
+        supervised_losses,
+        tropopause_losses,
+    )
+
+
+def _physics_residual_per_sample(
+    model: Module,
+    Xb: Tensor,
+    tau_R_pred: Tensor,
+    D_pred: Tensor,
+    Gamma: Tensor,
+    Wb: Tensor,
+) -> Tensor:
+    """Return physics residual for each sample in a batch."""
+    if D_pred is None:
+        return torch.full_like(tau_R_pred.squeeze(1), float("inf"))
+
+    if PHYSICS_CONSTRAINT == "diffusivity":
+        D_clamped = D_pred.clamp(min=1e-2, max=10.0)
+        tau_R_phys = 2 * D_clamped**2 / Gamma
+        residual = Wb * (tau_R_pred - tau_R_phys) ** 2
+        return residual.squeeze(1)
+
+    if PHYSICS_CONSTRAINT == "harmonic":
+        time_col = FeatureIndex.TIME
+        t = Xb[:, time_col].unsqueeze(1).clone().requires_grad_(True)
+        Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col + 1 :]], dim=1)
+        tau_R_pred_phys, _ = model(Xb_phys)
+        dtau_dt = torch.autograd.grad(
+            tau_R_pred_phys,
+            t,
+            grad_outputs=torch.ones_like(t),
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+        d2tau_dt2 = torch.autograd.grad(
+            dtau_dt,
+            t,
+            grad_outputs=torch.ones_like(t),
+            create_graph=True,
+        )[0]
+        residual = (
+            Wb
+            * (d2tau_dt2 + (OMEGA**2) * (tau_R_pred_phys - model.tauR_intercept)) ** 2
+        )
+        return residual.squeeze(1)
+
+    raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
+
+
+def _predict_with_residual(
+    model: Module,
+    X: np.ndarray,
+    Gamma: np.ndarray,
+    W: np.ndarray,
+    batch_size: int = 256,
+    device: str = DEVICE,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return τ_R predictions and physics residuals for all samples."""
+    loader = make_loader(X, Gamma, W, np.zeros(len(X)), batch_size, device, False)
+    preds, residuals = [], []
+    model.eval()
+    with torch.no_grad():
+        for Xb, Gb, Wb, _ in loader:
+            tau, D = model(Xb)
+            res = _physics_residual_per_sample(
+                model, Xb, tau, D, Gb.clamp(min=1e-2), Wb
+            )
+            preds.append(tau.cpu())
+            residuals.append(res.cpu())
+
+    pred_arr = torch.cat(preds).numpy().squeeze()
+    res_arr = torch.cat(residuals).numpy().squeeze()
+    return pred_arr, res_arr
+
+
+def train_with_pseudo_labels(
+    model: Module,
+    X: np.ndarray,
+    Gamma: np.ndarray,
+    W: np.ndarray,
+    tau_R: np.ndarray,
+    optimizer: Optimizer,
+    iterations: int = 3,
+    epochs_per_iteration: int = 50,
+    residual_threshold: float = 0.05,
+    update_every: int = 1,
+    batch_size: int = 256,
+    val_split: float = 0.2,
+    device: str = DEVICE,
+    time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG,
+) -> np.ndarray:
+    """Train model with pseudo-labeling based on physics residuals."""
+    labels = tau_R.copy()
+
+    for itr in range(iterations):
+        train_loader, val_loader = create_train_val_loaders(
+            X,
+            Gamma,
+            W,
+            labels,
+            batch_size=batch_size,
+            val_split=val_split,
+            device=device,
+            time_encoding_config=time_encoding_config,
+        )
+
+        train_model(
+            model,
+            train_loader,
+            val_loader,
+            optimizer,
+            n_epochs=epochs_per_iteration,
+        )
+
+        if (itr + 1) % update_every == 0:
+            preds, residuals = _predict_with_residual(
+                model,
+                X,
+                Gamma,
+                W,
+                batch_size=batch_size,
+                device=device,
+            )
+            mask = np.isnan(labels) & (residuals < residual_threshold)
+            labels[mask] = preds[mask]
+
+    return labels

@@ -51,6 +51,38 @@ python scripts/process_tropopause_features.py --infile data/processed/era5_tropo
 
 ---
 
+## Pseudo-Label Training
+
+Unlabeled samples for $\tau_R$ can be leveraged by the `train_with_pseudo_labels`
+function. After a configurable number of epochs, the network predicts $\tau_R$ for
+all records and adds those with a small physics residual as additional training targets.
+
+```python
+from residence_time.model import PINNModel
+from residence_time.train import train_with_pseudo_labels
+
+model = PINNModel(time_encoding_config={"enabled": False})
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+labels = train_with_pseudo_labels(
+    model,
+    X,
+    Gamma,
+    W,
+    tau_R,
+    optimizer,
+    iterations=3,
+    epochs_per_iteration=20,
+    residual_threshold=0.05,
+    update_every=1,
+)
+```
+
+Pseudo-label training utilizes additional $\Gamma$ and tropopause information to
+improve predictions when direct $\tau_R$ measurements are scarce.
+
+---
+
 ## Acknowledgements
 
 This project builds on atmospheric age of air datasets from satellite and in-situ measurements and tropopause parameters from reanalysis. These originate from the following sources:
