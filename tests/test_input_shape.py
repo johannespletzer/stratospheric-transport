@@ -1,7 +1,6 @@
 import torch
 
 from residence_time.model import PINNModel
-from residence_time.config import *
 
 BASE_INPUT_DIM = 6
 
