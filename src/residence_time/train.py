@@ -427,10 +427,11 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE)
         Supervised loss over non-NaN targets.
 
     """
-    mask = ~torch.isnan(Tb)
-    if mask.any():
-        return torch.mean((tau_R_pred[mask] - Tb[mask])**2)
-    return torch.tensor(0.0, device=device)
+    if target is None or torch.isnan(target).all():
+        return torch.tensor(0.0, device=pred.device)
+
+    mask = ~torch.isnan(target)
+    return torch.mean((pred[mask] - target[mask]) ** 2)
 
 
 def _compute_tropopause_constraint_loss(
@@ -517,7 +518,7 @@ def _run_epoch(
         total_tp += loss_tp.item() if isinstance(loss_tp, torch.Tensor) else loss_tp
 
     return total_loss, total_phys, total_sup, total_tp
-
+  
 
 def train_model(
     model: Module,

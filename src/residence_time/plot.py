@@ -1,3 +1,4 @@
+import logging
 from collections import ChainMap
 from typing import List, Optional, Tuple
 
@@ -16,6 +17,7 @@ from residence_time.config import (
 from residence_time.feature_config import FeatureIndex
 from residence_time.data import extend_with_tropopause_features
 from residence_time.train import apply_time_encoding
+logger = logging.getLogger(__name__)
 
 
 def plot_physics_residual(
@@ -309,7 +311,7 @@ def plot_training_progress(
 
     if save_path:
         plt.savefig(save_path, dpi=300)
-        print(f"?? Saved training progress plot to: {save_path}")
+        logger.info("Saved training progress plot to: %s", save_path)
 
     plt.show()
 
