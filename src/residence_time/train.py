@@ -358,8 +358,8 @@ def train_model(
         lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
         lambda_sup = lambda_sup_start
 
-        # Deactivate D_pred if harmonic oscillator constrains neural network
-        model.include_D = False if PHYSICS_CONSTRAINT == "harmonic" else True
+        # Respect model's initial setting for predicting diffusivity
+        # (harmonic constraint disables D branch via model initialization)
 
         for Xb, Gb, Wb, Tb in train_loader:
             optimizer.zero_grad()  # always do this before backward()
