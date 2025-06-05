@@ -49,6 +49,18 @@ Extract tropopause parameters. Input file and output directory can be declared f
 python scripts/process_tropopause_features.py --infile data/processed/era5_tropopause_combined.nc
 ```
 
+## Adaptive Loss Weighting
+
+During training the balance between supervised and physics losses can be adjusted automatically. Set
+
+```python
+ADAPTIVE_WEIGHTING = True
+```
+
+in `residence_time/config.py` or pass ``adaptive_weighting=True`` to ``train_model`` to activate automatic updates of ``lambda_phys`` and ``lambda_sup``.
+
+Set ``ADAPTIVE_METHOD`` to either ``"gradnorm"`` or ``"relobralo"`` to choose the weighting algorithm.
+
 ## Training utilities
 
 See [docs/training_options.md](docs/training_options.md) for details on adaptive loss weighting and pseudo-labelling.

@@ -1,5 +1,6 @@
 import torch
 
+
 from residence_time.config import HIDDEN_DIM, HIDDEN_LAYERS
 from residence_time.feature_config import N_BASE_FEATURES, N_TP_FEATURES
 from residence_time.model import PINNModel

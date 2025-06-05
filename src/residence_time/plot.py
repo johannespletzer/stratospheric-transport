@@ -14,9 +14,10 @@ from residence_time.config import (
     DEVICE,
     USE_TROPOPAUSE_FEATURES,
 )
-from residence_time.feature_config import FeatureIndex
 from residence_time.data import extend_with_tropopause_features
+from residence_time.feature_config import FeatureIndex
 from residence_time.train import apply_time_encoding
+
 logger = logging.getLogger(__name__)
 
 
