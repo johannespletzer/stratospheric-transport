@@ -19,83 +19,25 @@ The network is based on:
 
 ---
 
-## Installation and code changes
+## Model preparation and usage
 
-Install the package
+### Installation
+
+Install the package:
 
 ```bash
 pip install -e .
 ```
 
----
+### Data preparation
 
-## Data Preparation
+See [docs/data_preparation.md](docs/data_preparation.md) for instructions on
+downloading the age-of-air observations and optional tropopause features.
 
-Download age of air data for training from satellite and in-situ measurements.
+### Training utilities
 
-```python
-python scripts/download_age_of_air_data.py --output data/age_of_air
-```
-
-Download tropopause parameters for training. This is optional. Consider using the --output parameter to define a download directory due to the data size. The ``--file-limit`` option can be used to restrict the number of files downloaded per year, which is useful for testing.
-
-```python
-python scripts/download_and_process_era5.py --start-year 1980 --end-year 2018 --file-limit 2
-```
-
-Extract tropopause parameters. Input file and output directory can be declared freely.
-
-```python
-python scripts/process_tropopause_features.py --infile data/processed/era5_tropopause_combined.nc
-```
-
-## Adaptive Loss Weighting
-
-During training the balance between supervised and physics losses can be adjusted automatically. Set
-
-```python
-ADAPTIVE_WEIGHTING = True
-```
-
-in `residence_time/config.py` or pass ``adaptive_weighting=True`` to ``train_model`` to activate automatic updates of ``lambda_phys`` and ``lambda_sup``.
-
-Set ``ADAPTIVE_METHOD`` to either ``"gradnorm"`` or ``"relobralo"`` to choose the weighting algorithm.
-
-## Training utilities
-
-See [docs/training_options.md](docs/training_options.md) for details on adaptive loss weighting and pseudo-labelling.
-
----
-
-## Pseudo-Label Training
-
-Unlabeled samples for $\tau_R$ can be leveraged by the `train_with_pseudo_labels`
-function. After a configurable number of epochs, the network predicts $\tau_R$ for
-all records and adds those with a small physics residual as additional training targets.
-
-```python
-from residence_time.model import PINNModel
-from residence_time.train import train_with_pseudo_labels
-
-model = PINNModel(time_encoding_config={"enabled": False})
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-labels = train_with_pseudo_labels(
-    model,
-    X,
-    Gamma,
-    W,
-    tau_R,
-    optimizer,
-    iterations=3,
-    epochs_per_iteration=20,
-    residual_threshold=0.05,
-    update_every=1,
-)
-```
-
-Pseudo-label training utilizes additional $\Gamma$ and tropopause information to
-improve predictions when direct $\tau_R$ measurements are scarce.
+Loss weighting strategies and pseudo-label training are detailed in
+[docs/training_options.md](docs/training_options.md).
 
 ---
 
@@ -109,7 +51,4 @@ This project builds on atmospheric age of air datasets from satellite and in-sit
 
 ---
 
-## Running the tests
-
-The repository provides small NetCDF samples in `tests/sample_data`. Use `pytest` to run the suite locally without downloading additional files.
 

@@ -38,6 +38,35 @@ train_loader, val_loader = create_train_val_loaders(
 
 The training routine will merge these pseudo targets with the real measurements. Confidence in pseudo-labels can be tuned through their associated weights.
 
+### Iterative pseudo-label training
+
+The `train_with_pseudo_labels` helper automates multiple rounds of training and
+label refinement:
+
+```python
+from residence_time.model import PINNModel
+from residence_time.train import train_with_pseudo_labels
+
+model = PINNModel(time_encoding_config={"enabled": False})
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+labels = train_with_pseudo_labels(
+    model,
+    X,
+    Gamma,
+    W,
+    tau_R,
+    optimizer,
+    iterations=3,
+    epochs_per_iteration=20,
+    residual_threshold=0.05,
+    update_every=1,
+)
+```
+
+This process leverages additional Γ and tropopause information to improve
+predictions when direct τ₍R₎ observations are scarce.
+
 ## Balancing physics and supervision
 
 - Start with `lambda_phys_start` around 1–10 depending on the uncertainty of Γ.
