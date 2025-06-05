@@ -6,6 +6,7 @@ import torch
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 
+from residence_time.feature_config import N_BASE_FEATURES, FeatureIndex
 from residence_time.model import PINNModel
 from residence_time.plot import (
     plot_field_from_data,
@@ -13,7 +14,6 @@ from residence_time.plot import (
     plot_tau_R_prediction_vs_target,
     plot_training_progress,
 )
-from residence_time.feature_config import FeatureIndex, N_BASE_FEATURES
 
 
 @pytest.fixture(autouse=True)

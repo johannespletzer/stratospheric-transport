@@ -1,12 +1,10 @@
 import torch
 
-from residence_time.model import PINNModel
-from residence_time.config import *
 from residence_time.feature_config import (
-    FeatureIndex,
     N_BASE_FEATURES,
     N_TP_FEATURES,
 )
+from residence_time.model import PINNModel
 
 BASE_INPUT_DIM = N_BASE_FEATURES
 

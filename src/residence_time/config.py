@@ -36,3 +36,7 @@ PHYSICS_CONSTRAINT = "diffusivity"  # Options: "harmonic", "diffusivity"
 # Harmonic oscillator settings
 OMEGA = 2 * np.pi  # For harmonic oscillator (1 cycle/year)
 MEAN_TAU = 1.5
+
+# Adaptive loss weighting
+ADAPTIVE_WEIGHTING = False
+ADAPTIVE_METHOD = "gradnorm"  # Options: "gradnorm", "relobralo", "none"

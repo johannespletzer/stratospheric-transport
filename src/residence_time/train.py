@@ -16,7 +16,13 @@ from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
+from residence_time.adaptive_weights import (
+    update_weights_gradnorm,
+    update_weights_relobralo,
+)
 from residence_time.config import (
+    ADAPTIVE_METHOD,
+    ADAPTIVE_WEIGHTING,
     DEFAULT_TIME_ENCODING_CONFIG,
     DEVICE,
     EARLY_STOP_PATIENCE,
@@ -427,11 +433,11 @@ def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE)
         Supervised loss over non-NaN targets.
 
     """
-    if target is None or torch.isnan(target).all():
-        return torch.tensor(0.0, device=pred.device)
+    if Tb is None or torch.isnan(Tb).all():
+        return torch.tensor(0.0, device=tau_R_pred.device)
 
-    mask = ~torch.isnan(target)
-    return torch.mean((pred[mask] - target[mask]) ** 2)
+    mask = ~torch.isnan(Tb)
+    return torch.mean((tau_R_pred[mask] - Tb[mask]) ** 2)
 
 
 def _compute_tropopause_constraint_loss(
@@ -529,29 +535,40 @@ def train_model(
     lambda_phys_start: float = 1.0,
     lambda_sup: float = 1.0,
     lambda_tp: float = 1.0,
-    decay_rate: float = 0.95
-) -> Tuple[List[float], List[float], List[float], List[float]]:
+    adaptive_weighting: bool = ADAPTIVE_WEIGHTING,
+    adaptive_method: str = ADAPTIVE_METHOD,
+) -> Tuple[List[float], List[float], List[float], List[float], List[float], List[float]]:
     """Train a physics-informed model with both supervised and physics losses.
 
     Returns
     -------
-    Tuple of lists: train_losses, val_losses, physics_losses, supervised_losses
+    Tuple containing history of losses and task weights.
 
     """
     train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses = [], [], [], [], []
+    lambda_phys_hist, lambda_sup_hist = [], []
     best_val_loss = float("inf")
     early_stop_counter = 0
 
+    lambda_phys = lambda_phys_start
+    lambda_sup_w = lambda_sup
+    relobralo_state = None
+
     for epoch in range(1, n_epochs + 1):
-        lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
+        if not adaptive_weighting:
+            lambda_phys_epoch = lambda_phys_start
+            lambda_sup_epoch = lambda_sup_w
+        else:
+            lambda_phys_epoch = lambda_phys
+            lambda_sup_epoch = lambda_sup_w
         model.include_D = PHYSICS_CONSTRAINT != "harmonic"
 
         train_loss, phys_loss, sup_loss, tp_loss = _run_epoch(
-            model, train_loader, optimizer, lambda_phys, lambda_sup, lambda_tp, train=True
+            model, train_loader, optimizer, lambda_phys_epoch, lambda_sup_epoch, lambda_tp, train=True
         )
 
         val_loss, val_phys, val_sup, tp_loss = _run_epoch(
-            model, val_loader, optimizer=None, lambda_phys=lambda_phys, lambda_sup=lambda_sup, lambda_tp=lambda_tp, train=False
+            model, val_loader, optimizer=None, lambda_phys=lambda_phys_epoch, lambda_sup=lambda_sup_epoch, lambda_tp=lambda_tp, train=False
         )
 
         train_losses.append(train_loss)
@@ -559,6 +576,31 @@ def train_model(
         physics_losses.append(phys_loss)
         supervised_losses.append(sup_loss)
         tropopause_losses.append(tp_loss)
+        lambda_phys_hist.append(lambda_phys_epoch)
+        lambda_sup_hist.append(lambda_sup_epoch)
+
+        if adaptive_weighting:
+            batch = next(iter(train_loader))
+            Xb, Gb, Wb, Tb = batch
+            Gamma = Gb.clamp(min=1e-2)
+            tau_pred, D_pred = model(Xb)
+            loss_phys = _compute_physics_loss(model, Xb, tau_pred, D_pred, Gamma, Wb)
+            loss_sup = _compute_supervised_loss(tau_pred, Tb, device=Xb.device)
+
+            if adaptive_method == "gradnorm":
+                lambda_sup_w, lambda_phys = update_weights_gradnorm(
+                    model,
+                    [loss_sup, loss_phys],
+                    [lambda_sup_epoch, lambda_phys_epoch],
+                )
+            elif adaptive_method == "relobralo":
+                weights, relobralo_state = update_weights_relobralo(
+                    model,
+                    [loss_sup, loss_phys],
+                    [lambda_sup_epoch, lambda_phys_epoch],
+                    relobralo_state,
+                )
+                lambda_sup_w, lambda_phys = weights
 
         if val_loss < best_val_loss - 1e-4:
             best_val_loss = val_loss
@@ -577,4 +619,12 @@ def train_model(
     if 'best_model_state' in locals():
         model.load_state_dict(best_model_state)
 
-    return train_losses, val_losses, physics_losses, supervised_losses, tropopause_losses
+    return (
+        train_losses,
+        val_losses,
+        physics_losses,
+        supervised_losses,
+        tropopause_losses,
+        lambda_phys_hist,
+        lambda_sup_hist,
+    )

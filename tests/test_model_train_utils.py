@@ -1,9 +1,13 @@
 import numpy as np
 import torch
 
+from residence_time.feature_config import N_BASE_FEATURES
 from residence_time.model import PINNModel
-from residence_time.train import create_train_val_loaders, scale_variables
-from residence_time.feature_config import FeatureIndex, N_BASE_FEATURES
+from residence_time.train import (
+    create_train_val_loaders,
+    scale_variables,
+    train_model,
+)
 from residence_time.utils import datetime64_to_year_fraction
 
 
@@ -69,3 +73,59 @@ def test_datetime64_to_year_fraction_output() -> None:
     assert isinstance(result, np.ndarray)
     assert result.shape == (2,)
     assert result[1] > result[0]
+
+
+def test_adaptive_weights_evolve() -> None:
+    """Verify that adaptive weighting updates lambda values over epochs."""
+    N = 64
+    X = np.random.rand(N, N_BASE_FEATURES)
+    Gamma = np.random.rand(N)
+    W = np.ones(N)
+    tau_R = np.random.rand(N)
+
+    train_loader, val_loader = create_train_val_loaders(
+        X, Gamma, W, tau_R, batch_size=16, val_split=0.2, device="cpu"
+    )
+    model = PINNModel(
+        input_dim=N_BASE_FEATURES,
+        include_D=True,
+        use_tropopause_features=False,
+        time_encoding_config={"enabled": False},
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    import residence_time.train as train_mod
+    original_tp = train_mod.USE_TROPOPAUSE_FEATURES
+    train_mod.USE_TROPOPAUSE_FEATURES = False
+
+    *_ , lambda_phys_hist, lambda_sup_hist = train_model(
+        model,
+        train_loader,
+        val_loader,
+        optimizer,
+        n_epochs=3,
+        lambda_phys_start=1.0,
+        lambda_sup=1.0,
+        lambda_tp=0.0,
+        adaptive_weighting=True,
+        adaptive_method="gradnorm",
+    )
+
+    *_ , lambda_phys_hist2, lambda_sup_hist2 = train_model(
+        model,
+        train_loader,
+        val_loader,
+        optimizer,
+        n_epochs=3,
+        lambda_phys_start=1.0,
+        lambda_sup=1.0,
+        lambda_tp=0.0,
+        adaptive_weighting=True,
+        adaptive_method="relobralo",
+    )
+
+    train_mod.USE_TROPOPAUSE_FEATURES = original_tp
+
+    changed1 = lambda_phys_hist[0] != lambda_phys_hist[-1] or lambda_sup_hist[0] != lambda_sup_hist[-1]
+    changed2 = lambda_phys_hist2[0] != lambda_phys_hist2[-1] or lambda_sup_hist2[0] != lambda_sup_hist2[-1]
+    assert changed1 and changed2
