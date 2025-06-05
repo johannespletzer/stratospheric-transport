@@ -418,20 +418,18 @@ def _compute_physics_loss(
     raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
 
 
-def _compute_supervised_loss(tau_R_pred: Tensor, Tb: Tensor, device: str=DEVICE) -> Tensor:
-    """Compute supervised MSE loss where target values are available.
+def _compute_supervised_loss(
+    tau_R_pred: Tensor, Tb: Optional[Tensor], device: str = DEVICE
+) -> Tensor:
+    """Compute supervised MSE loss where target values are available."""
+    if Tb is None or torch.isnan(Tb).all():
+        return torch.tensor(0.0, device=device)
 
-    Returns
-    -------
-    loss_sup : torch.Tensor
-        Supervised loss over non-NaN targets.
+    mask = ~torch.isnan(Tb)
+    if not mask.any():
+        return torch.tensor(0.0, device=device)
 
-    """
-    if target is None or torch.isnan(target).all():
-        return torch.tensor(0.0, device=pred.device)
-
-    mask = ~torch.isnan(target)
-    return torch.mean((pred[mask] - target[mask]) ** 2)
+    return torch.mean((tau_R_pred[mask] - Tb[mask]) ** 2)
 
 
 def _compute_tropopause_constraint_loss(
