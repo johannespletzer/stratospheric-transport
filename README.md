@@ -1,10 +1,10 @@
 # Modeling of Stratospheric Transport
 
-Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network to model **residence time (τ_R)** in the stratosphere using estimates of the **mean age of air (Γ)** from satellite, in-situ, and model datasets. Tropopause reanalysis data can be used as additional features and multiple feature extensions are possible to track changes over time on short and long scales.
+Today, age of air and residence time are known concepts of atmospheric transport. However, the connection is not established analytically for all cases. This repository includes a Physics-Informed Neural Network to model **residence time** in the stratosphere using estimates of the **mean age of air** from satellite, in-situ, and model datasets. Tropopause reanalysis data can be used as additional features and multiple feature extensions are possible to track changes over time on short and long scales.
 
 The network is based on:
-- Supervised learning with residence time data 
-- Partly-supervised learning with two optional physics-based constraints
+- Semi-supervised learning with residence time data 
+- Physics-informed learning with two optional constraints
 	- $τ_R = 2·D^2 / \Gamma$
 	- $\text{residual} = \frac{d^2 \tau_R}{dt^2} + \Omega^2 \left( \tau_R - \tau_0 \right)$
 
@@ -31,8 +31,8 @@ pip install -e .
 
 ### Data preparation
 
-See [docs/data_preparation.md](docs/data_preparation.md) for instructions on
-downloading the age-of-air observations and optional tropopause features.
+Instructions on downloading the age-of-air observations and optional tropopause features are found in
+[docs/data_preparation.md](docs/data_preparation.md).
 
 ### Training utilities
 
@@ -50,5 +50,3 @@ This project builds on atmospheric age of air datasets from satellite and in-sit
 - Hoffmann and Spang 2021: ["Reanalysis Tropopause Data Repository"](https://doi.org/10.26165/JUELICH-DATA/UBNGI2)
 
 ---
-
-
