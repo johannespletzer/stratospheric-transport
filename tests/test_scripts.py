@@ -1,97 +1,78 @@
 import os
-import subprocess
+import sys
 import tempfile
+import types
+from pathlib import Path
 from typing import List
+from unittest import mock
+
+from conftest import create_era5_nc  # helper to build NetCDF
+
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPT_DIR))
+
+# Provide dummy dask.distributed if dependency is absent
+if "dask.distributed" not in sys.modules:
+    dummy = types.ModuleType("dask.distributed")
+    dummy.Client = lambda *_, **__: None
+    sys.modules["dask.distributed"] = dummy
+
+from download_age_of_air_data import download_and_extract_age_data  # noqa: E402
+from download_and_process_era5 import main as era5_main  # noqa: E402
+from process_tropopause_features import main as process_main  # noqa: E402
 
 
-def run_script(script_path: str, args: List[str]) -> None:
-    """Run a Python script with the given arguments and assert success.
+def test_download_age_of_air_data(sample_zip_bytes: bytes) -> None:
+    """Extract zipped archive from fixture and ensure .nc files are present."""
 
-    Parameters
-    ----------
-    script_path : str
-        Path to the Python script to execute.
+    class DummyResponse:
+        def __init__(self, content: bytes) -> None:
+            self.content = content
 
-    args : List[str]
-        List of command-line arguments to pass to the script.
+        def raise_for_status(self) -> None:  # pragma: no cover - no failure
+            pass
 
-    Returns
-    -------
-    None
-
-    Raises
-    ------
-    AssertionError
-        If the script returns a non-zero exit code.
-
-    """
-    result = subprocess.run(
-        ["python", script_path] + args, capture_output=True, text=True
-    )
-    print(result.stdout)
-    print(result.stderr)
-    assert result.returncode == 0, f"{script_path} failed"
-
-
-def test_download_age_of_air_data() -> None:
-    """Download file and assert nc files were found."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        script = "scripts/download_age_of_air_data.py"
-        run_script(script, ["--output", tmpdir])
+        with mock.patch(
+            "download_age_of_air_data.requests.get",
+            return_value=DummyResponse(sample_zip_bytes),
+        ):
+            download_and_extract_age_data(tmpdir)
 
-        # Recursively check for .nc files
-        found_nc = False
-        for _, _, files in os.walk(tmpdir):
-            if any(fname.endswith(".nc") for fname in files):
-                found_nc = True
-                break
-
+        found_nc = any(p.suffix == ".nc" for p in Path(tmpdir).rglob("*.nc"))
         assert found_nc, "No .nc files found after extraction"
 
 
 def test_download_and_process_era5() -> None:
-    """Download era5 tropopause features and assert files were combined to a single nc file."""
+    """Combine generated ERA5 files into a single NetCDF."""
+
+    def dummy_download(urls: List[str], paths: List[str], max_workers: int = 8) -> None:
+        for path in paths:
+            create_era5_nc(Path(path))
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        script = "scripts/download_and_process_era5.py"
-        run_script(
-            script,
-            [
-                "--start-year",
-                "2000",
-                "--end-year",
-                "2000",
-                "--output",
-                tmpdir,
-                "--file-limit",
-                "1",
-            ],
-        )
+        with mock.patch(
+            "download_and_process_era5.list_year_folders",
+            return_value=["2000"],
+        ), mock.patch(
+            "download_and_process_era5.list_files_in_folder",
+            return_value=["era5_sample.nc"],
+        ), mock.patch(
+            "download_and_process_era5.download_files_multithreaded",
+            side_effect=dummy_download,
+        ):
+            era5_main(2000, 2000, tmpdir, file_limit=1)
+
         combined_path = os.path.join(tmpdir, "era5_tropopause_combined.nc")
         assert os.path.exists(combined_path)
 
 
 def test_process_tropopause_features() -> None:
-    """Extract specific tropopause features on monthly basis and assert write to file works."""
+    """Process ERA5 sample file and ensure CSV is written."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        # First download ERA5 to get a valid input file
-        era5_script = "scripts/download_and_process_era5.py"
-        run_script(
-            era5_script,
-            [
-                "--start-year",
-                "2000",
-                "--end-year",
-                "2000",
-                "--output",
-                tmpdir,
-                "--file-limit",
-                "1",
-            ],
-        )
         combined_file = os.path.join(tmpdir, "era5_tropopause_combined.nc")
+        create_era5_nc(Path(combined_file))
 
-        # Then run the processing script
-        process_script = "scripts/process_tropopause_features.py"
         output_csv = os.path.join(tmpdir, "features.csv")
-        run_script(process_script, ["--infile", combined_file, "--outfile", output_csv])
+        process_main(combined_file, output_csv)
         assert os.path.exists(output_csv)
