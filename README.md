@@ -49,6 +49,10 @@ Extract tropopause parameters. Input file and output directory can be declared f
 python scripts/process_tropopause_features.py --infile data/processed/era5_tropopause_combined.nc
 ```
 
+## Training utilities
+
+See [docs/training_options.md](docs/training_options.md) for details on adaptive loss weighting and pseudo-labelling.
+
 ---
 
 ## Acknowledgements
@@ -58,3 +62,10 @@ This project builds on atmospheric age of air datasets from satellite and in-sit
 - Garny et al. 2024: ["Age of stratospheric air: observational data sets (v2)"](https://zenodo.org/records/13906743)
 
 - Hoffmann and Spang 2021: ["Reanalysis Tropopause Data Repository"](https://doi.org/10.26165/JUELICH-DATA/UBNGI2)
+
+---
+
+## Running the tests
+
+The repository provides small NetCDF samples in `tests/sample_data`. Use `pytest` to run the suite locally without downloading additional files.
+

@@ -18,7 +18,7 @@ dependencies = [
     "scikit-learn",
     "matplotlib",
     "xarray",
-    "dask",
+    "dask[distributed]",
     "netCDF4",
     "pandas",
     "aerocalc3",
