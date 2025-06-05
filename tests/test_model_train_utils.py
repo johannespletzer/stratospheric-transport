@@ -1,9 +1,11 @@
 import numpy as np
+import pytest
 import torch
 
 from residence_time.feature_config import N_BASE_FEATURES
 from residence_time.model import PINNModel
 from residence_time.train import (
+    _compute_supervised_loss,
     create_train_val_loaders,
     scale_variables,
     train_model,
@@ -129,3 +131,20 @@ def test_adaptive_weights_evolve() -> None:
     changed1 = lambda_phys_hist[0] != lambda_phys_hist[-1] or lambda_sup_hist[0] != lambda_sup_hist[-1]
     changed2 = lambda_phys_hist2[0] != lambda_phys_hist2[-1] or lambda_sup_hist2[0] != lambda_sup_hist2[-1]
     assert changed1 and changed2
+
+    
+def test_compute_supervised_loss_with_nan_targets() -> None:
+    """Loss should ignore NaNs and run on the specified device."""
+    pred = torch.tensor([[1.0], [2.0], [3.0]])
+    target = torch.tensor([[1.0], [float("nan")], [2.0]])
+    loss = _compute_supervised_loss(pred, target, device="cpu")
+    assert torch.isclose(loss, torch.tensor(0.5))
+    assert loss.device.type == "cpu"
+
+
+def test_compute_supervised_loss_all_nan() -> None:
+    """All-NaN targets should yield zero loss."""
+    pred = torch.tensor([[1.0], [2.0]])
+    target = torch.tensor([[float("nan")], [float("nan")]])
+    loss = _compute_supervised_loss(pred, target, device="cpu")
+    assert loss.item() == pytest.approx(0.0)
