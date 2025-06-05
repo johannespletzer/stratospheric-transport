@@ -19,24 +19,24 @@ The network is based on:
 
 ---
 
-## Installation and code changes
+## Model preparation and usage
 
-Install the package
+### Installation
+
+Install the package:
 
 ```bash
 pip install -e .
 ```
 
----
+### Data preparation
 
-## Data Preparation
+See [docs/data_preparation.md](docs/data_preparation.md) for instructions on
+downloading the age-of-air observations and optional tropopause features.
 
-Instructions for downloading the age-of-air observations and optional tropopause
-features can be found in [docs/data_preparation.md](docs/data_preparation.md).
+### Training utilities
 
-## Training utilities
-
-Loss weighting strategies and pseudo-label training are explained in
+Loss weighting strategies and pseudo-label training are detailed in
 [docs/training_options.md](docs/training_options.md).
 
 ---
@@ -51,7 +51,4 @@ This project builds on atmospheric age of air datasets from satellite and in-sit
 
 ---
 
-## Running the tests
-
-The repository provides small NetCDF samples in `tests/sample_data`. Use `pytest` to run the suite locally without downloading additional files.
 
