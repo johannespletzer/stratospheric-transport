@@ -57,11 +57,51 @@ def test_plot_physics_residual_runs() -> None:
     plot_physics_residual(model, dataloader, device="cpu")
 
 
+def test_plot_physics_residual_requires_D_branch() -> None:
+    """Physics residual plotting should fail if model has no D output."""
+    model = PINNModel(include_D=False)
+    dataloader = make_dummy_dataloader()
+    with pytest.raises(ValueError, match="diffusivity output"):
+        plot_physics_residual(model, dataloader, device="cpu")
+
+
 def test_plot_tau_R_prediction_vs_target_runs() -> None:
     """Test that the τ_R prediction vs target plot function runs successfully."""
     model = PINNModel()
     dataloader = make_dummy_dataloader()
     plot_tau_R_prediction_vs_target(model, dataloader, device="cpu")
+
+
+def test_plot_field_from_data_rejects_invalid_field() -> None:
+    """plot_field_from_data should validate requested field names."""
+    model = PINNModel()
+    X = np.random.rand(200, 5)
+    scaler = MinMaxScaler().fit(X)
+
+    with pytest.raises(ValueError, match="field must be one of"):
+        plot_field_from_data(
+            model=model,
+            X=X,
+            scaler_X=scaler,
+            field="invalid",
+            device="cpu",
+        )
+
+
+def test_plot_field_from_data_requires_D_for_D_field() -> None:
+    """Requesting D field must fail when model has no D branch."""
+    model = PINNModel(include_D=False)
+    X = np.random.rand(200, 5)
+    scaler = MinMaxScaler().fit(X)
+
+    with pytest.raises(ValueError, match="no diffusivity output"):
+        plot_field_from_data(
+            model=model,
+            X=X,
+            scaler_X=scaler,
+            field="D",
+            device="cpu",
+        )
 
 
 def test_plot_training_progress_runs() -> None:

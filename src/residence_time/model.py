@@ -51,7 +51,7 @@ class PINNModel(nn.Module):
         time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
     ):
         super().__init__()
-        self.include_D = include_D if PHYSICS_CONSTRAINT == 'diffusivity' else False
+        self.include_D = bool(include_D and PHYSICS_CONSTRAINT == "diffusivity")
 
         self.tauR_intercept = nn.Parameter(torch.tensor(MEAN_TAU)) if PHYSICS_CONSTRAINT == 'harmonic' else None
 
@@ -77,7 +77,7 @@ class PINNModel(nn.Module):
         self.tauR_branch = nn.Sequential(*layers_tau)
 
         # D branch
-        if include_D:
+        if self.include_D:
             layers_D = []
             in_dim = effective_input_dim
             for _ in range(hidden_layers):
@@ -116,5 +116,5 @@ class PINNModel(nn.Module):
 
         """
         tau_R_pred = self.softplus(self.tauR_branch(x))
-        D_pred = self.softplus(self.D_branch(x)) if self.include_D else None
+        D_pred = self.softplus(self.D_branch(x)) if self.D_branch is not None else None
         return tau_R_pred, D_pred

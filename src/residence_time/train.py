@@ -23,7 +23,8 @@ def make_loader(
     W: np.ndarray,
     tau: np.ndarray,
     batch_size: int,
-    device: str
+    device: str,
+    shuffle: bool = True
 ) -> DataLoader:
     """Convert input arrays into a PyTorch DataLoader for training or validation.
 
@@ -59,23 +60,28 @@ def make_loader(
     tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device)
 
     dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
-def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, MinMaxScaler]:
-    """Scale features for model training."""
-    if default:
-        scaler_X = StandardScaler()
+def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, ColumnTransformer]:
+    """Backward-compatible wrapper for column-wise feature scaling."""
+    scaler_name = 'StandardScaler' if default else 'MinMaxScaler'
+    return scale_variables_columnwise(X_obs, scaler=scaler_name)
+
+
+def add_cyclical_time_features(
+    X: np.ndarray,
+    time_col: int = 2,
+    seasonal_phase: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """Add sin/cos of seasonal phase to feature array."""
+    if seasonal_phase is None:
+        time_frac = X[:, time_col] % 1
     else:
-        scaler_X = MinMaxScaler()
-    X_scaled = scaler_X.fit_transform(X_obs)
+        time_frac = np.asarray(seasonal_phase) % 1
+        if time_frac.shape[0] != X.shape[0]:
+            raise ValueError("seasonal_phase length must match number of samples in X")
 
-    return X_scaled, scaler_X
-
-
-def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
-    """Add sin/cos of fractional year (e.g. 0.25 = spring) to feature array."""
-    time_frac = X[:, time_col] % 1  # isolate seasonal phase
     sin_time = np.sin(2 * np.pi * time_frac)
     cos_time = np.cos(2 * np.pi * time_frac)
     return np.concatenate([X, sin_time[:, None], cos_time[:, None]], axis=1)
@@ -136,8 +142,9 @@ def add_rbf_time_features(
         time_transformed = time % 1
         centers = np.linspace(0, 1, n_rbf, endpoint=False)
     elif kind == "absolute":
-        # Normalize time to [0, 1]
-        time_transformed = (time - t_min) / (t_max - t_min)
+        # Normalize and clip time to [0, 1] for robust extrapolation handling.
+        den = max(t_max - t_min, 1e-8)
+        time_transformed = np.clip((time - t_min) / den, 0.0, 1.0)
         centers = np.linspace(0, 1, n_rbf)
     else:
         raise ValueError("kind must be 'seasonal' or 'absolute'")
@@ -146,7 +153,11 @@ def add_rbf_time_features(
     return np.concatenate([X, rbf_feats], axis=1)
 
 
-def apply_time_encoding(X: np.ndarray, cfg: dict) -> np.ndarray:
+def apply_time_encoding(
+    X: np.ndarray,
+    cfg: dict,
+    seasonal_phase: Optional[np.ndarray] = None
+) -> np.ndarray:
     """Use config to apply time encoding options."""
     cfg = dict(ChainMap(cfg, DEFAULT_TIME_ENCODING_CONFIG))
 
@@ -156,20 +167,26 @@ def apply_time_encoding(X: np.ndarray, cfg: dict) -> np.ndarray:
     X_out = X.copy()
     t_col = cfg["time_col"]
     time = X[:, t_col]
+    if seasonal_phase is not None:
+        phase = np.asarray(seasonal_phase) % 1
+        if phase.shape[0] != X.shape[0]:
+            raise ValueError("seasonal_phase length must match number of samples in X")
+    else:
+        phase = time % 1
 
     features_to_add = []
 
     if cfg["use_cyclical"]:
-        X_out = add_cyclical_time_features(X_out, time_col=t_col)
+        X_out = add_cyclical_time_features(X_out, time_col=t_col, seasonal_phase=phase)
 
     if cfg["use_rbf_seasonal"]:
-        time_frac = time % 1
         centers = np.linspace(0, 1, cfg["n_rbf_seasonal"], endpoint=False)
-        rbf_seasonal = rbf_transformer(time_frac, centers, cfg["gamma_seasonal"])
+        rbf_seasonal = rbf_transformer(phase, centers, cfg["gamma_seasonal"])
         features_to_add.append(rbf_seasonal)
 
     if cfg["use_rbf_absolute"]:
-        time_norm = (time - cfg["t_min"]) / (cfg["t_max"] - cfg["t_min"])
+        den = max(cfg["t_max"] - cfg["t_min"], 1e-8)
+        time_norm = np.clip((time - cfg["t_min"]) / den, 0.0, 1.0)
         centers = np.linspace(0, 1, cfg["n_rbf_absolute"])
         rbf_abs = rbf_transformer(time_norm, centers, cfg["gamma_absolute"])
         features_to_add.append(rbf_abs)
@@ -198,9 +215,8 @@ def scale_variables_columnwise(
     """
     scaler_cls = StandardScaler if scaler == 'StandardScaler' else MinMaxScaler
 
-    # Identity transform applied to column 2 (time)
-    # Other columns scaled
-    time_transf = FunctionTransformer(validate=False) if PHYSICS_CONSTRAINT == 'harmonic' else scaler_cls()
+    # Time is kept in absolute year units in all modes.
+    time_transf = FunctionTransformer(validate=False)
 
     scaler_X = ColumnTransformer(
         transformers=[
@@ -270,25 +286,74 @@ def create_train_val_loaders(
         PyTorch DataLoader for validation data.
 
     """
+    time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
+    t_col = time_encoding_config["time_col"]
+
+    # Split absolute year and seasonal phase: year goes to base time feature, phase is encoded separately.
+    X_pre = X.copy()
+    time_raw = X_pre[:, t_col].astype(float)
+    time_year = np.floor(time_raw)
+    seasonal_phase = np.mod(time_raw - time_year, 1.0)
+    X_pre[:, t_col] = time_year
+
     if tau_R is not None:
-        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val, tau_train, tau_val = train_test_split(
-            X, Gamma, W, tau_R, test_size=val_split, random_state=42
+        (
+            X_train,
+            X_val,
+            Gamma_train,
+            Gamma_val,
+            W_train,
+            W_val,
+            tau_train,
+            tau_val,
+            phase_train,
+            phase_val
+        ) = train_test_split(
+            X_pre, Gamma, W, tau_R, seasonal_phase, test_size=val_split, random_state=42
         )
     else:
-        X_train, X_val, Gamma_train, Gamma_val, W_train, W_val = train_test_split(
-            X, Gamma, W, test_size=val_split, random_state=42
+        (
+            X_train,
+            X_val,
+            Gamma_train,
+            Gamma_val,
+            W_train,
+            W_val,
+            phase_train,
+            phase_val
+        ) = train_test_split(
+            X_pre, Gamma, W, seasonal_phase, test_size=val_split, random_state=42
         )
         tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
         tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
 
-    time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
+    if PHYSICS_CONSTRAINT == "harmonic" and time_encoding_config.get("enabled", False):
+        raise ValueError(
+            "Time encoding is not supported when PHYSICS_CONSTRAINT='harmonic'. "
+            "Harmonic derivatives are computed from the base time column only."
+        )
 
     if time_encoding_config.get("enabled", False):
-        X_train = apply_time_encoding(X_train, time_encoding_config)
-        X_val = apply_time_encoding(X_val, time_encoding_config)
+        X_train = apply_time_encoding(X_train, time_encoding_config, seasonal_phase=phase_train)
+        X_val = apply_time_encoding(X_val, time_encoding_config, seasonal_phase=phase_val)
 
-    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
-           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
+    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device, shuffle=True), \
+           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device, shuffle=False)
+
+
+def supervised_mse(
+    tau_R_pred: torch.Tensor,
+    tau_target: torch.Tensor
+) -> torch.Tensor:
+    """Compute supervised MSE only on finite target values."""
+    if tau_target is None:
+        return torch.tensor(0.0, device=tau_R_pred.device)
+
+    valid_mask = torch.isfinite(tau_target)
+    if not torch.any(valid_mask):
+        return torch.tensor(0.0, device=tau_R_pred.device)
+
+    return torch.mean((tau_R_pred[valid_mask] - tau_target[valid_mask])**2)
 
 
 def train_model(
@@ -349,9 +414,6 @@ def train_model(
         lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
         lambda_sup = lambda_sup_start
 
-        # Deactivate D_pred if harmonic oscillator constrains neural network
-        model.include_D = False if PHYSICS_CONSTRAINT == "harmonic" else True
-
         for Xb, Gb, Wb, Tb in train_loader:
             optimizer.zero_grad()  # always do this before backward()
         
@@ -395,7 +457,7 @@ def train_model(
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
                 loss_phys = torch.tensor(0.0, device=Xb.device)
         
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            loss_sup = supervised_mse(tau_R_pred, Tb)
         
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
         
@@ -407,9 +469,14 @@ def train_model(
             phys_loss_total += loss_phys.item()
             sup_loss_total += loss_sup.item()
 
-        train_losses.append(train_loss)
-        physics_losses.append(phys_loss_total)
-        supervised_losses.append(sup_loss_total)
+        n_train_batches = max(len(train_loader), 1)
+        train_loss_mean = train_loss / n_train_batches
+        phys_loss_mean = phys_loss_total / n_train_batches
+        sup_loss_mean = sup_loss_total / n_train_batches
+
+        train_losses.append(train_loss_mean)
+        physics_losses.append(phys_loss_mean)
+        supervised_losses.append(sup_loss_mean)
 
         # Validation
         model.eval()
@@ -456,15 +523,17 @@ def train_model(
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
                 loss_phys = torch.tensor(0.0, device=Xb.device)
 
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            loss_sup = supervised_mse(tau_R_pred, Tb)
 
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
             val_loss += loss.item()
 
-        val_losses.append(val_loss)
+        n_val_batches = max(len(val_loader), 1)
+        val_loss_mean = val_loss / n_val_batches
+        val_losses.append(val_loss_mean)
 
         if (epoch % 10 == 0) or (epoch==1):
-            print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
-                  f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
+            print(f"Epoch {epoch:4d} | Train Loss: {train_loss_mean:.4e} | Val Loss: {val_loss_mean:.4e} | "
+                  f"Phys Loss: {phys_loss_mean:.2e} | Sup Loss: {sup_loss_mean:.2e}")
 
     return train_losses, val_losses, physics_losses, supervised_losses
