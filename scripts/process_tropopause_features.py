@@ -43,6 +43,28 @@ def _month_end_frequency_alias() -> str:
     raise ValueError("No supported month-end resampling alias found (tried 'ME' and 'M').")
 
 
+def _resample_monthly_mean_std(tp_lon_mean: xr.DataArray, frequency: str) -> xr.Dataset:
+    """Compute monthly mean/std via pandas to avoid xarray/pandas resample incompatibilities."""
+    tp_df = tp_lon_mean.to_pandas()
+    tp_monthly_mean = tp_df.resample(frequency).mean()
+    tp_monthly_std = tp_df.resample(frequency).std()
+
+    return xr.Dataset(
+        {
+            "tp_WMO": xr.DataArray(
+                tp_monthly_mean.to_numpy(),
+                dims=("time", "lat"),
+                coords={"time": tp_monthly_mean.index, "lat": tp_monthly_mean.columns},
+            ),
+            "tp_WMO_std": xr.DataArray(
+                tp_monthly_std.to_numpy(),
+                dims=("time", "lat"),
+                coords={"time": tp_monthly_std.index, "lat": tp_monthly_std.columns},
+            ),
+        }
+    )
+
+
 def main(infile: str, outfile: str) -> None:
     """Post-process ERA5 tropopause data to extract monthly features for model training.
     
@@ -67,8 +89,8 @@ def main(infile: str, outfile: str) -> None:
 
     # Monthly resampling
     month_end_freq = _month_end_frequency_alias()
-    ds_tp_sel = ds_tp.mean('lon').resample(time=month_end_freq).mean('time')
-    ds_tp_sel['tp_WMO_std'] = ds_tp['tp_WMO'].mean('lon').resample(time=month_end_freq).std('time')
+    tp_lon_mean = ds_tp["tp_WMO"].mean("lon")
+    ds_tp_sel = _resample_monthly_mean_std(tp_lon_mean, month_end_freq)
 
     # Hemisphere splits
     ds_tp_sel_nh = ds_tp_sel.where(ds_tp_sel.lat >= 0.)

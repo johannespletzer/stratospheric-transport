@@ -164,6 +164,41 @@ def test_month_end_frequency_alias_falls_back_to_m(monkeypatch: pytest.MonkeyPat
     assert frequencies_checked == ["ME", "M"]
 
 
+def test_resample_monthly_mean_std_avoids_xarray_resample(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Monthly helper should rely on pandas resampling and not xarray.DataArray.resample."""
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+
+    module_path = PROJECT_ROOT / "scripts" / "process_tropopause_features.py"
+    spec = importlib.util.spec_from_file_location("process_tropopause_features", module_path)
+    assert spec is not None and spec.loader is not None
+    process_script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(process_script)
+
+    time = pd.to_datetime(["2000-01-01", "2000-01-15", "2000-02-01", "2000-02-15"])
+    lat = np.array([-10.0, 10.0])
+    lon = np.array([0.0, 5.0])
+    values = np.arange(time.size * lat.size * lon.size, dtype=float).reshape(time.size, lat.size, lon.size)
+    tp_lon_mean = xr.DataArray(
+        values,
+        dims=("time", "lat", "lon"),
+        coords={"time": time, "lat": lat, "lon": lon},
+    ).mean("lon")
+
+    def fail_xarray_resample(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("xarray.DataArray.resample should not be used")
+
+    monkeypatch.setattr(process_script.xr.DataArray, "resample", fail_xarray_resample)
+
+    month_end_freq = process_script._month_end_frequency_alias()
+    ds_monthly = process_script._resample_monthly_mean_std(tp_lon_mean, month_end_freq)
+
+    assert set(ds_monthly.data_vars) == {"tp_WMO", "tp_WMO_std"}
+    assert ds_monthly.sizes["time"] == 2
+    assert ds_monthly.sizes["lat"] == 2
+
+
 def test_train_model_rejects_disable_d_output_in_diffusivity_mode() -> None:
     """CLI must fail fast when D output is disabled in diffusivity mode."""
     result = run_script_raw("scripts/train_model.py", ["--disable-d-output"])
