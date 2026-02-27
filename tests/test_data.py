@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import pytest
 import requests
-import pandas as pd
 import xarray as xr
 
 import residence_time.data as data_module

@@ -152,7 +152,7 @@ def test_month_end_frequency_alias_falls_back_to_m(monkeypatch: pytest.MonkeyPat
 
     frequencies_checked = []
 
-    def fake_to_offset(freq: str):
+    def fake_to_offset(freq: str) -> object:
         frequencies_checked.append(freq)
         if freq == "ME":
             raise ValueError("Invalid frequency: ME")
