@@ -1,5 +1,6 @@
 import argparse
 import os
+from typing import Optional
 
 from residence_time.prep import (
     concatenate_files,
@@ -12,7 +13,21 @@ BASE_URL = "https://datapub.fz-juelich.de/slcs/tropopause/data/v1/era5low/"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "../", "data", "tropopause")
 
-def main(start_year: int, end_year: int, download_dir: str) -> None:
+
+def _positive_int(value: str) -> int:
+    """Parse a positive integer for CLI arguments."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
+def main(
+    start_year: int,
+    end_year: int,
+    download_dir: str,
+    file_limit: Optional[int] = None,
+) -> None:
     """Download and concatenate ERA5 tropopause data (low resolution) from the Jülich SLCS server.
     
     This script:
@@ -27,15 +42,22 @@ def main(start_year: int, end_year: int, download_dir: str) -> None:
     # Get list of available years on server and filter by year range
     year_folders = list_year_folders(BASE_URL)
     selected_years = [y for y in year_folders if y.isdigit() and start_year <= int(y) <= end_year]
+    remaining_file_budget = file_limit
 
     total_years = len(selected_years)
     for i, year in enumerate(selected_years, start=1):
+        if remaining_file_budget is not None and remaining_file_budget <= 0:
+            print("Reached --file-limit; skipping remaining years.")
+            break
+
         print(f"\n[{i}/{total_years}] Processing year: {year} ({int((i / total_years) * 100)}% complete)")
         year_url = f"{BASE_URL}{year}/"
         year_dir = os.path.join(download_dir, year)
         os.makedirs(year_dir, exist_ok=True)
     
-        nc_files = list_files_in_folder(year_url)
+        nc_files = sorted(list_files_in_folder(year_url))
+        if remaining_file_budget is not None:
+            nc_files = nc_files[:remaining_file_budget]
         file_urls = [f"{year_url}{file}" for file in nc_files]
         local_paths = [os.path.join(year_dir, file) for file in nc_files]
     
@@ -55,6 +77,9 @@ def main(start_year: int, end_year: int, download_dir: str) -> None:
         else:
             print("  All files already downloaded.")
 
+        if remaining_file_budget is not None:
+            remaining_file_budget -= len(nc_files)
+
     print("Concatenating files...")
     dataset = concatenate_files(download_dir, allowed_years=[str(y) for y in selected_years])
 
@@ -67,6 +92,12 @@ if __name__ == "__main__":
     parser.add_argument("--start-year", type=int, required=True, help="Start year of data to download (e.g., 2000)")
     parser.add_argument("--end-year", type=int, required=True, help="End year of data to download (e.g., 2020)")
     parser.add_argument("--output", type=str, default=DEFAULT_DOWNLOAD_DIR, help="Directory to store downloaded files and output file")
+    parser.add_argument(
+        "--file-limit",
+        type=_positive_int,
+        default=None,
+        help="Optional global cap on total number of NetCDF files to process.",
+    )
 
     args = parser.parse_args()
-    main(args.start_year, args.end_year, args.output)
+    main(args.start_year, args.end_year, args.output, file_limit=args.file_limit)

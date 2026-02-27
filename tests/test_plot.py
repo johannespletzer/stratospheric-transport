@@ -1,10 +1,14 @@
 from unittest.mock import patch
 
+import matplotlib
 import numpy as np
 import pytest
 import torch
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
+
+# Use a non-interactive backend for headless test environments.
+matplotlib.use("Agg")
 
 from residence_time.model import PINNModel
 from residence_time.plot import (

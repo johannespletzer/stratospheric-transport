@@ -131,7 +131,7 @@ pytest -v
 CI currently runs:
 
 ```bash
-pytest -v --ignore=tests/test_scripts.py
+pytest -v
 ```
 
 ## Evaluation and Visualization
