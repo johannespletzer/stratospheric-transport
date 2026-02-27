@@ -4,12 +4,32 @@ from typing import Union
 
 import numpy as np
 import xarray as xr
-from dask.distributed import Client
 
 
 def coefficient_of_variation(x: Union[np.ndarray, xr.DataArray], axis: int = 0) -> Union[float, np.ndarray]:
     """Compute coefficient of variation along a given axis."""
     return np.std(x, axis=axis) / np.mean(x, axis=axis)
+
+
+def _setup_dask_client_if_available(ncpu: int = 10, nworker: int = 1) -> None:
+    """Configure a local Dask distributed client when available."""
+    threads = ncpu // nworker
+    mem_limit = 20 / nworker
+
+    try:
+        from dask.distributed import Client
+    except ImportError:
+        print("dask.distributed is not installed; using the default dask scheduler.")
+        return
+
+    Client(
+        processes=False,
+        threads_per_worker=threads,
+        n_workers=nworker,
+        memory_limit=f"{mem_limit}GB",
+    )
+    print(f"Dask client set up with {threads} threads per worker.")
+
 
 def main(infile: str, outfile: str) -> None:
     """Post-process ERA5 tropopause data to extract monthly features for model training.
@@ -27,26 +47,15 @@ def main(infile: str, outfile: str) -> None:
     """
     print(f"Loading data from {infile}")
 
-    # Setup Dask
-    ncpu = 10
-    nworker = 1
-    threads = ncpu // nworker
-    mem_limit = 20 / nworker
-    Client(
-        processes=False,
-        threads_per_worker=threads,
-        n_workers=nworker,
-        memory_limit=f"{mem_limit}GB"
-    )
-    print(f"Dask client set up with {threads} threads per worker.")
+    _setup_dask_client_if_available()
 
     ds = xr.open_mfdataset(infile, chunks={"time": 5})
     ds_tp = xr.Dataset(coords=ds.coords)
     ds_tp['tp_WMO'] = ds['wmo_1st_p']
 
     # Monthly resampling
-    ds_tp_sel = ds_tp.mean('lon').resample(time='M').mean('time')
-    ds_tp_sel['tp_WMO_std'] = ds_tp['tp_WMO'].mean('lon').resample(time='M').std('time')
+    ds_tp_sel = ds_tp.mean('lon').resample(time='ME').mean('time')
+    ds_tp_sel['tp_WMO_std'] = ds_tp['tp_WMO'].mean('lon').resample(time='ME').std('time')
 
     # Hemisphere splits
     ds_tp_sel_nh = ds_tp_sel.where(ds_tp_sel.lat >= 0.)

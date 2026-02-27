@@ -41,8 +41,12 @@ def main(
 
     # Get list of available years on server and filter by year range
     year_folders = list_year_folders(BASE_URL)
-    selected_years = [y for y in year_folders if y.isdigit() and start_year <= int(y) <= end_year]
+    selected_years = sorted(
+        [y for y in year_folders if y.isdigit() and start_year <= int(y) <= end_year],
+        key=int
+    )
     remaining_file_budget = file_limit
+    selected_local_paths = []
 
     total_years = len(selected_years)
     for i, year in enumerate(selected_years, start=1):
@@ -60,6 +64,7 @@ def main(
             nc_files = nc_files[:remaining_file_budget]
         file_urls = [f"{year_url}{file}" for file in nc_files]
         local_paths = [os.path.join(year_dir, file) for file in nc_files]
+        selected_local_paths.extend(local_paths)
     
         # Filter out already-downloaded files
         filtered_file_urls = []
@@ -81,7 +86,15 @@ def main(
             remaining_file_budget -= len(nc_files)
 
     print("Concatenating files...")
-    dataset = concatenate_files(download_dir, allowed_years=[str(y) for y in selected_years])
+    if not selected_local_paths:
+        raise ValueError(
+            "No NetCDF files selected for concatenation. "
+            "Check year range, output directory, and --file-limit."
+        )
+    dataset = concatenate_files(
+        download_dir,
+        allowed_files=selected_local_paths,
+    )
 
     print(f"Saving dataset to {output_file}")
     dataset.to_netcdf(output_file)

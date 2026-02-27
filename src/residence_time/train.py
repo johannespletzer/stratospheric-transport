@@ -217,20 +217,26 @@ def scale_variables_columnwise(
         Fitted transformer with column order preserved.
 
     """
+    if X_obs.shape[1] < 5:
+        raise ValueError("X_obs must include at least 5 base columns: [lat, alt, time, source, gamma].")
+
     scaler_cls = StandardScaler if scaler == 'StandardScaler' else MinMaxScaler
 
     # Time is kept in absolute year units in all modes.
     time_transf = FunctionTransformer(validate=False)
 
-    scaler_X = ColumnTransformer(
-        transformers=[
-            ("lat",     scaler_cls(), [0]),
-            ("alt",     scaler_cls(), [1]),
-            ("time",    time_transf, [2]),
-            ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
-            ("gamma",   scaler_cls(), [4]),
-        ]
-    )
+    transformers = [
+        ("lat",     scaler_cls(), [0]),
+        ("alt",     scaler_cls(), [1]),
+        ("time",    time_transf, [2]),
+        ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
+        ("gamma",   scaler_cls(), [4]),
+    ]
+    if X_obs.shape[1] > 5:
+        extra_cols = list(range(5, X_obs.shape[1]))
+        transformers.append(("extra", scaler_cls(), extra_cols))
+
+    scaler_X = ColumnTransformer(transformers=transformers)
 
     X_scaled = scaler_X.fit_transform(X_obs)
     scaler_X.scaler_name = scaler
@@ -360,6 +366,57 @@ def supervised_mse(
     return torch.mean((tau_R_pred[valid_mask] - tau_target[valid_mask])**2)
 
 
+def _compute_batch_losses(
+    model: Module,
+    Xb: torch.Tensor,
+    Gb: torch.Tensor,
+    Wb: torch.Tensor,
+    Tb: torch.Tensor,
+    *,
+    harmonic_second_derivative_graph: bool,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute physics and supervised losses for one batch."""
+    if PHYSICS_CONSTRAINT == "diffusivity":
+        Gamma = Gb.clamp(min=1e-2)
+        tau_R_pred, D_pred = model(Xb)
+        if D_pred is None:
+            raise ValueError("D prediction required for diffusivity-based constraint.")
+
+        D_clamped = D_pred.clamp(min=1e-2, max=10.0)
+        tau_R_phys = 2 * D_clamped**2 / Gamma
+        loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
+
+    elif PHYSICS_CONSTRAINT == "harmonic":
+        time_col = 2  # index of time in input
+        t = Xb[:, time_col].unsqueeze(1).clone()
+        t.requires_grad_(True)
+
+        # Rebuild Xb_phys with t linked to autograd
+        Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col + 1:]], dim=1)
+        tau_R_pred, _ = model(Xb_phys)
+
+        dtau_dt = torch.autograd.grad(
+            tau_R_pred, t,
+            grad_outputs=torch.ones_like(tau_R_pred),
+            create_graph=True
+        )[0]
+
+        d2tau_dt2 = torch.autograd.grad(
+            dtau_dt, t,
+            grad_outputs=torch.ones_like(dtau_dt),
+            create_graph=harmonic_second_derivative_graph
+        )[0]
+
+        residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
+        loss_phys = torch.mean(Wb * residual**2)
+
+    else:
+        raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
+
+    loss_sup = supervised_mse(tau_R_pred, Tb)
+    return loss_phys, loss_sup
+
+
 def train_model(
     model: Module,
     train_loader: DataLoader,
@@ -406,6 +463,11 @@ def train_model(
     supervised_losses : list of float
 
     """
+    if PHYSICS_CONSTRAINT == "diffusivity" and getattr(model, "D_branch", None) is None:
+        raise ValueError(
+            "Diffusivity physics constraint requires a model with diffusivity output (D branch)."
+        )
+
     train_losses, val_losses, physics_losses, supervised_losses = [], [], [], []
     model_device = next(model.parameters()).device
     use_non_blocking = model_device.type == "cuda"
@@ -426,48 +488,18 @@ def train_model(
             Wb = Wb.to(model_device, non_blocking=use_non_blocking)
             Tb = Tb.to(model_device, non_blocking=use_non_blocking)
             optimizer.zero_grad(set_to_none=True)
-        
-            if PHYSICS_CONSTRAINT == "diffusivity":
-                Gamma = Gb.clamp(min=1e-2)
-                tau_R_pred, D_pred = model(Xb)
-                assert D_pred is not None, "D prediction required for diffusivity-based constraint."
 
-                D_clamped = D_pred.clamp(min=1e-2, max=10.0)
-                tau_R_phys = 2 * D_clamped**2 / Gamma
-                loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
-            
-            elif PHYSICS_CONSTRAINT == "harmonic":
-                time_col = 2  # index of time in input
-                t = Xb[:, time_col].unsqueeze(1).clone()
-                t.requires_grad_(True)
-            
-                # Rebuild Xb_phys with t linked to autograd
-                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
-            
-                tau_R_pred, _ = model(Xb_phys)
-            
-                dtau_dt = torch.autograd.grad(
-                    tau_R_pred, t,
-                    grad_outputs=torch.ones_like(tau_R_pred),
-                    create_graph=True
-                )[0]
-            
-                d2tau_dt2 = torch.autograd.grad(
-                    dtau_dt, t,
-                    grad_outputs=torch.ones_like(dtau_dt),
-                    create_graph=True
-                )[0]
-            
-                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
-                loss_phys = torch.mean(Wb * residual**2)
-            
-            else:
-                raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-        
-            loss_sup = supervised_mse(tau_R_pred, Tb)
-        
+            loss_phys, loss_sup = _compute_batch_losses(
+                model,
+                Xb,
+                Gb,
+                Wb,
+                Tb,
+                harmonic_second_derivative_graph=True,
+            )
+
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
-        
+
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # clip gradients
             optimizer.step()
@@ -495,39 +527,30 @@ def train_model(
                     Gb = Gb.to(model_device, non_blocking=use_non_blocking)
                     Wb = Wb.to(model_device, non_blocking=use_non_blocking)
                     Tb = Tb.to(model_device, non_blocking=use_non_blocking)
-                    Gamma = Gb.clamp(min=1e-2)
-                    tau_R_pred, D_pred = model(Xb)
-                    assert D_pred is not None, "D prediction required for diffusivity-based constraint."
-                    D_clamped = D_pred.clamp(min=1e-2, max=10.0)
-                    tau_R_phys = 2 * D_clamped**2 / Gamma
-                    loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
-                    loss_sup = supervised_mse(tau_R_pred, Tb)
+                    loss_phys, loss_sup = _compute_batch_losses(
+                        model,
+                        Xb,
+                        Gb,
+                        Wb,
+                        Tb,
+                        harmonic_second_derivative_graph=False,
+                    )
                     loss = lambda_phys * loss_phys + lambda_sup * loss_sup
                     val_loss += loss.item()
         elif PHYSICS_CONSTRAINT == "harmonic":
-            for Xb, _, Wb, Tb in val_loader:
+            for Xb, Gb, Wb, Tb in val_loader:
                 Xb = Xb.to(model_device, non_blocking=use_non_blocking)
+                Gb = Gb.to(model_device, non_blocking=use_non_blocking)
                 Wb = Wb.to(model_device, non_blocking=use_non_blocking)
                 Tb = Tb.to(model_device, non_blocking=use_non_blocking)
-                time_col = 2  # index of time in input
-                t = Xb[:, time_col].unsqueeze(1).clone()
-                t.requires_grad_(True)
-                # Rebuild Xb_phys with t linked to autograd
-                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col + 1:]], dim=1)
-                tau_R_pred, _ = model(Xb_phys)
-                dtau_dt = torch.autograd.grad(
-                    tau_R_pred, t,
-                    grad_outputs=torch.ones_like(tau_R_pred),
-                    create_graph=True
-                )[0]
-                d2tau_dt2 = torch.autograd.grad(
-                    dtau_dt, t,
-                    grad_outputs=torch.ones_like(dtau_dt),
-                    create_graph=False
-                )[0]
-                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
-                loss_phys = torch.mean(Wb * residual**2)
-                loss_sup = supervised_mse(tau_R_pred, Tb)
+                loss_phys, loss_sup = _compute_batch_losses(
+                    model,
+                    Xb,
+                    Gb,
+                    Wb,
+                    Tb,
+                    harmonic_second_derivative_graph=False,
+                )
                 loss = lambda_phys * loss_phys + lambda_sup * loss_sup
                 val_loss += loss.item()
         else:

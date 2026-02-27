@@ -82,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--disable-d-output",
         action="store_true",
-        help="Disable diffusivity output branch regardless of default.",
+        help="Disable diffusivity output branch (only valid when PHYSICS_CONSTRAINT is not 'diffusivity').",
     )
 
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size.")
@@ -121,6 +121,11 @@ def main() -> None:
         raise ValueError(
             "Time encoding is not supported when PHYSICS_CONSTRAINT='harmonic'. "
             "Disable time encoding flags or switch physics mode."
+        )
+    if PHYSICS_CONSTRAINT == "diffusivity" and args.disable_d_output:
+        raise ValueError(
+            "--disable-d-output is incompatible with PHYSICS_CONSTRAINT='diffusivity'. "
+            "Enable the D branch or switch the physics constraint."
         )
 
     if not any([args.sat_paths, args.insitu_paths, args.model_paths]):

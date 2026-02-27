@@ -113,6 +113,22 @@ def test_scale_variables_columnwise_preserves_time_column() -> None:
     np.testing.assert_allclose(X_scaled[:, 2], X[:, 2])
 
 
+def test_scale_variables_columnwise_keeps_additional_features() -> None:
+    """Scaling must preserve extra feature columns (e.g., tropopause features)."""
+    X = np.array(
+        [
+            [10.0, 18.0, 1985.25, 0.0, 2.0, 100.0, 200.0, 300.0],
+            [-5.0, 22.0, 2010.75, 1.0, 3.0, 110.0, 210.0, 310.0],
+            [30.0, 25.0, 2020.50, 2.0, 2.5, 120.0, 220.0, 320.0],
+        ]
+    )
+    X_scaled, _ = scale_variables_columnwise(X, scaler="StandardScaler")
+    assert X_scaled.shape == X.shape
+    np.testing.assert_allclose(X_scaled[:, 2], X[:, 2])
+    np.testing.assert_allclose(X_scaled[:, 3], X[:, 3])
+    assert not np.allclose(X_scaled[:, 5:], X[:, 5:])
+
+
 def test_add_rbf_time_features_clips_absolute_time_range() -> None:
     """Absolute RBF encoding should clip years outside [t_min, t_max]."""
     X = np.array(
@@ -158,6 +174,32 @@ def test_harmonic_mode_rejects_time_encoding(monkeypatch: pytest.MonkeyPatch) ->
             val_split=0.2,
             device="cpu",
             time_encoding_config={"enabled": True, "use_cyclical": True},
+        )
+
+
+def test_train_model_requires_d_branch_for_diffusivity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Diffusivity physics mode requires a model that predicts D."""
+    monkeypatch.setattr(train_module, "PHYSICS_CONSTRAINT", "diffusivity")
+
+    N = 32
+    X = np.random.rand(N, 5)
+    Gamma = np.random.rand(N) + 0.1
+    W = np.ones(N)
+
+    train_loader, val_loader = create_train_val_loaders(
+        X, Gamma, W, tau_R=None, batch_size=8, val_split=0.25, device="cpu"
+    )
+
+    model = PINNModel(input_dim=5, include_D=False)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    with pytest.raises(ValueError, match="requires a model with diffusivity output"):
+        train_model(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            optimizer=optimizer,
+            n_epochs=1,
         )
 
 

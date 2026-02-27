@@ -119,16 +119,23 @@ def download_files_multithreaded(
             future.result()
 
 
-def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = None) -> xr.Dataset:
-    """Concatenate multiple NetCDF files found in a directory tree into a single xarray.Dataset.
+def concatenate_files(
+    download_dir: str,
+    allowed_years: Optional[List[str]] = None,
+    allowed_files: Optional[List[str]] = None,
+) -> xr.Dataset:
+    """Concatenate multiple NetCDF files into a single xarray.Dataset.
 
     Parameters
     ----------
     download_dir : str
-        Base directory to search for .nc files.
+        Base directory to search for .nc files when ``allowed_files`` is not provided.
 
     allowed_years : List[str], optional
         If provided, only include files from folders named with these years.
+
+    allowed_files : List[str], optional
+        If provided, concatenate only these exact .nc file paths (strict allow-list).
 
     Returns
     -------
@@ -141,18 +148,26 @@ def concatenate_files(download_dir: str, allowed_years: Optional[List[str]] = No
         If no matching .nc files are found.
 
     """
-    dataset_files = []
-    for root, _, files in os.walk(download_dir):
-        if allowed_years is not None:
-            year_dirname = os.path.basename(root)
-            if year_dirname not in allowed_years:
-                continue
-        for file in files:
-            if file.endswith(".nc"):
-                dataset_files.append(os.path.join(root, file))
+    dataset_files: List[str] = []
+    if allowed_files is not None:
+        dataset_files = [os.path.abspath(path) for path in allowed_files if path.endswith(".nc")]
+    else:
+        for root, _, files in os.walk(download_dir):
+            if allowed_years is not None:
+                year_dirname = os.path.basename(root)
+                if year_dirname not in allowed_years:
+                    continue
+            for file in files:
+                if file.endswith(".nc"):
+                    dataset_files.append(os.path.join(root, file))
+
+    dataset_files = sorted(set(dataset_files))
 
     if not dataset_files:
-        raise ValueError(f"No NetCDF files found in {download_dir} with allowed_years={allowed_years}")
+        raise ValueError(
+            f"No NetCDF files found for concatenation in {download_dir} "
+            f"(allowed_years={allowed_years}, allowed_files={allowed_files})"
+        )
 
     print(f"Opening {len(dataset_files)} NetCDF files...")
 
