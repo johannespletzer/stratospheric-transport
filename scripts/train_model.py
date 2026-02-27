@@ -71,6 +71,12 @@ def parse_args() -> argparse.Namespace:
         help="Augment model inputs with tropopause features.",
     )
     parser.add_argument(
+        "--tropopause-csv",
+        type=str,
+        default=None,
+        help="Optional explicit path to tropopause_features_monthly.csv.",
+    )
+    parser.add_argument(
         "--scaler",
         choices=["StandardScaler", "MinMaxScaler"],
         default="StandardScaler",
@@ -140,6 +146,7 @@ def main() -> None:
         model_paths=args.model_paths,
         time_range=time_range,
         trop_features=args.use_tropopause_features,
+        tropopause_csv_path=args.tropopause_csv,
     )
 
     tau_R = None

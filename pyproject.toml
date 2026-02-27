@@ -21,15 +21,18 @@ dependencies = [
     "dask",
     "netCDF4",
     "pandas",
+    "scipy",
     "aerocalc3",
-    "pytest",
     "requests",
-    "ruff",
-    "argparse",
     "joblib",
-    "datetime",
     "bs4",
-    "typing"
+    "pyyaml"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff"
 ]
 
 [tool.setuptools.packages.find]
