@@ -142,6 +142,28 @@ def test_process_tropopause_features() -> None:
         assert os.path.exists(output_csv)
 
 
+def test_month_end_frequency_alias_falls_back_to_m(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use legacy month-end alias when pandas runtime does not support 'ME'."""
+    module_path = PROJECT_ROOT / "scripts" / "process_tropopause_features.py"
+    spec = importlib.util.spec_from_file_location("process_tropopause_features", module_path)
+    assert spec is not None and spec.loader is not None
+    process_script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(process_script)
+
+    frequencies_checked = []
+
+    def fake_to_offset(freq: str):
+        frequencies_checked.append(freq)
+        if freq == "ME":
+            raise ValueError("Invalid frequency: ME")
+        return object()
+
+    monkeypatch.setattr(process_script.pd.tseries.frequencies, "to_offset", fake_to_offset)
+
+    assert process_script._month_end_frequency_alias() == "M"
+    assert frequencies_checked == ["ME", "M"]
+
+
 def test_train_model_rejects_disable_d_output_in_diffusivity_mode() -> None:
     """CLI must fail fast when D output is disabled in diffusivity mode."""
     result = run_script_raw("scripts/train_model.py", ["--disable-d-output"])

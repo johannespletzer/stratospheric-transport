@@ -3,6 +3,7 @@ import os
 from typing import Union
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 
@@ -31,6 +32,17 @@ def _setup_dask_client_if_available(ncpu: int = 10, nworker: int = 1) -> None:
     print(f"Dask client set up with {threads} threads per worker.")
 
 
+def _month_end_frequency_alias() -> str:
+    """Return a pandas month-end frequency alias supported by the runtime."""
+    for frequency in ("ME", "M"):
+        try:
+            pd.tseries.frequencies.to_offset(frequency)
+            return frequency
+        except ValueError:
+            continue
+    raise ValueError("No supported month-end resampling alias found (tried 'ME' and 'M').")
+
+
 def main(infile: str, outfile: str) -> None:
     """Post-process ERA5 tropopause data to extract monthly features for model training.
     
@@ -54,8 +66,9 @@ def main(infile: str, outfile: str) -> None:
     ds_tp['tp_WMO'] = ds['wmo_1st_p']
 
     # Monthly resampling
-    ds_tp_sel = ds_tp.mean('lon').resample(time='ME').mean('time')
-    ds_tp_sel['tp_WMO_std'] = ds_tp['tp_WMO'].mean('lon').resample(time='ME').std('time')
+    month_end_freq = _month_end_frequency_alias()
+    ds_tp_sel = ds_tp.mean('lon').resample(time=month_end_freq).mean('time')
+    ds_tp_sel['tp_WMO_std'] = ds_tp['tp_WMO'].mean('lon').resample(time=month_end_freq).std('time')
 
     # Hemisphere splits
     ds_tp_sel_nh = ds_tp_sel.where(ds_tp_sel.lat >= 0.)
