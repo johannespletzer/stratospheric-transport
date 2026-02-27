@@ -8,6 +8,7 @@ import torch
 from residence_time.config import (
     DEFAULT_TIME_ENCODING_CONFIG,
     LEARNING_RATE,
+    PHYSICS_CONSTRAINT,
     USE_TROPOPAUSE_FEATURES,
 )
 from residence_time.data import load_all_data_combined, load_tau_R
@@ -115,6 +116,12 @@ def main() -> None:
     args = parse_args()
     time_range = parse_time_range(args.time_start, args.time_end)
     time_config = build_time_encoding_config(args)
+
+    if PHYSICS_CONSTRAINT == "harmonic" and time_config.get("enabled", False):
+        raise ValueError(
+            "Time encoding is not supported when PHYSICS_CONSTRAINT='harmonic'. "
+            "Disable time encoding flags or switch physics mode."
+        )
 
     if not any([args.sat_paths, args.insitu_paths, args.model_paths]):
         raise ValueError("Provide at least one dataset via --sat-paths, --insitu-paths, or --model-paths.")

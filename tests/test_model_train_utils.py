@@ -1,8 +1,17 @@
 import numpy as np
+import pytest
 import torch
 
+import residence_time.train as train_module
 from residence_time.model import PINNModel
-from residence_time.train import create_train_val_loaders, scale_variables, train_model
+from residence_time.train import (
+    add_rbf_time_features,
+    apply_time_encoding,
+    create_train_val_loaders,
+    scale_variables,
+    scale_variables_columnwise,
+    train_model,
+)
 from residence_time.utils import datetime64_to_year_fraction
 
 
@@ -89,3 +98,104 @@ def test_train_model_without_supervised_targets_stays_finite() -> None:
     assert np.isfinite(physics_losses[0])
     assert np.isfinite(supervised_losses[0])
     assert supervised_losses[0] == 0.0
+
+
+def test_scale_variables_columnwise_preserves_time_column() -> None:
+    """Time feature must remain in absolute year units after scaling."""
+    X = np.array(
+        [
+            [10.0, 18.0, 1985.25, 0.0, 2.0],
+            [-5.0, 22.0, 2010.75, 1.0, 3.0],
+            [30.0, 25.0, 2020.50, 2.0, 2.5],
+        ]
+    )
+    X_scaled, _ = scale_variables_columnwise(X, scaler="StandardScaler")
+    np.testing.assert_allclose(X_scaled[:, 2], X[:, 2])
+
+
+def test_add_rbf_time_features_clips_absolute_time_range() -> None:
+    """Absolute RBF encoding should clip years outside [t_min, t_max]."""
+    X = np.array(
+        [
+            [0.0, 0.0, 1900.0, 0.0, 1.0],  # below t_min
+            [0.0, 0.0, 2100.0, 0.0, 1.0],  # above t_max
+        ]
+    )
+    X_ext = add_rbf_time_features(
+        X,
+        time_col=2,
+        kind="absolute",
+        n_rbf=3,
+        gamma=1.0,
+        t_min=1980.0,
+        t_max=2025.0,
+    )
+    rbf = X_ext[:, 5:]
+    centers = np.linspace(0, 1, 3)
+    expected_low = np.exp(-1.0 * (0.0 - centers) ** 2)
+    expected_high = np.exp(-1.0 * (1.0 - centers) ** 2)
+    np.testing.assert_allclose(rbf[0], expected_low)
+    np.testing.assert_allclose(rbf[1], expected_high)
+
+
+def test_harmonic_mode_rejects_time_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Harmonic physics mode should reject precomputed time encodings."""
+    monkeypatch.setattr(train_module, "PHYSICS_CONSTRAINT", "harmonic")
+
+    X = np.random.rand(40, 5)
+    X[:, 2] = np.linspace(1990.0, 2020.0, 40)
+    Gamma = np.random.rand(40) + 0.1
+    W = np.ones(40)
+    tau_R = np.random.rand(40)
+
+    with pytest.raises(ValueError, match="Time encoding is not supported"):
+        create_train_val_loaders(
+            X,
+            Gamma,
+            W,
+            tau_R=tau_R,
+            batch_size=16,
+            val_split=0.2,
+            device="cpu",
+            time_encoding_config={"enabled": True, "use_cyclical": True},
+        )
+
+
+def test_create_train_val_loaders_uses_integer_year_base_time() -> None:
+    """Base time feature should be integer year after loader preprocessing."""
+    X = np.array(
+        [
+            [0.0, 20.0, 2000.10, 0.0, 2.0],
+            [1.0, 21.0, 2001.90, 0.0, 2.1],
+            [2.0, 22.0, 2002.25, 0.0, 2.2],
+            [3.0, 23.0, 2003.75, 0.0, 2.3],
+        ]
+    )
+    Gamma = np.ones(4)
+    W = np.ones(4)
+    tau = np.ones(4)
+
+    train_loader, val_loader = create_train_val_loaders(
+        X, Gamma, W, tau_R=tau, batch_size=2, val_split=0.5, device="cpu"
+    )
+
+    x_train, _, _, _ = next(iter(train_loader))
+    x_val, _, _, _ = next(iter(val_loader))
+    all_years = np.concatenate([x_train[:, 2].numpy(), x_val[:, 2].numpy()])
+    np.testing.assert_allclose(all_years, np.floor(all_years))
+
+
+def test_apply_time_encoding_season_is_independent_from_base_year() -> None:
+    """Seasonal encodings should depend on provided phase, not integer year value."""
+    X = np.array(
+        [
+            [0.0, 20.0, 2000.0, 0.0, 2.0],
+            [1.0, 21.0, 2015.0, 0.0, 2.0],
+        ]
+    )
+    phase = np.array([0.1, 0.1])
+    cfg = {"enabled": True, "use_cyclical": True}
+
+    X_enc = apply_time_encoding(X, cfg, seasonal_phase=phase)
+    # last two columns are sin/cos cyclical features
+    np.testing.assert_allclose(X_enc[0, -2:], X_enc[1, -2:])

@@ -178,11 +178,16 @@ def plot_field_from_data(
     source_fixed = source_value if source_value is not None else np.median(X[:, 3])
     gamma_fixed = gamma_value if gamma_value is not None else np.median(X[:, 4])
 
-    time_array = np.full_like(lat_grid.flatten(), time_fixed)
+    time_array_raw = np.full_like(lat_grid.flatten(), time_fixed, dtype=float)
+    time_array_year = np.floor(time_array_raw)
+    time_array_phase = np.mod(time_array_raw - time_array_year, 1.0)
     source_array = np.full_like(lat_grid.flatten(), source_fixed)
     gamma_array = np.full_like(lat_grid.flatten(), gamma_fixed)
 
-    X_base = np.stack([lat_grid.flatten(), alt_grid.flatten(), time_array, source_array, gamma_array], axis=1)
+    X_base = np.stack(
+        [lat_grid.flatten(), alt_grid.flatten(), time_array_year, source_array, gamma_array],
+        axis=1
+    )
 
     if use_tropopause_features:
         X_full, _ = extend_with_tropopause_features(X_base, csv_path=tp_csv_path)
@@ -192,7 +197,7 @@ def plot_field_from_data(
     X_scaled = scaler_X.transform(X_full)
 
     if time_encoding_config["enabled"]:
-        X_scaled = apply_time_encoding(X_scaled, time_encoding_config)
+        X_scaled = apply_time_encoding(X_scaled, time_encoding_config, seasonal_phase=time_array_phase)
 
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
 

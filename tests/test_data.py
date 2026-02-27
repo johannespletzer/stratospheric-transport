@@ -8,8 +8,10 @@ from typing import Optional, Tuple, Union
 import numpy as np
 import pytest
 import requests
+import xarray as xr
 
 import residence_time.data as data_module
+from residence_time.config import INSITU_REFERENCE_YEAR
 from residence_time.data import load_insitu_dataset, load_satellite_dataset
 
 ZENODO_URL = "https://zenodo.org/records/13906743/files/Age_Data_v2.zip?download=1"
@@ -123,3 +125,26 @@ def test_load_all_data_combined_applies_tropopause_weighting(monkeypatch: pytest
     assert X_out.shape == (2, 8)
     np.testing.assert_allclose(Gamma_out, Gamma_mock)
     np.testing.assert_allclose(W_out, W_mock * W_trop_mock)
+
+
+def test_load_insitu_dataset_uses_reference_year(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In-situ records should use configured reference year for the time column."""
+    ds = xr.Dataset(
+        data_vars={
+            "Mean_Age_SF6_corr": (("season", "lat", "Altitude"), np.array([[[2.0]], [[2.2]]])),
+            "Mean_Age_CO2": (("season", "lat", "Altitude"), np.array([[[2.1]], [[2.3]]])),
+            "Mean_Age_SF6_corr_STD": (("season", "lat", "Altitude"), np.array([[[0.2]], [[0.2]]])),
+            "Mean_Age_CO2_STD": (("season", "lat", "Altitude"), np.array([[[0.3]], [[0.3]]])),
+        },
+        coords={"season": [0, 1], "lat": [10.0], "Altitude": [20.0]},
+    )
+
+    def fake_open_dataset(filepath: str) -> xr.Dataset:
+        _ = filepath
+        return ds
+
+    monkeypatch.setattr(data_module.xr, "open_dataset", fake_open_dataset)
+    X, _, _ = data_module.load_insitu_dataset("dummy.nc")
+
+    assert X.shape[1] == 5
+    np.testing.assert_allclose(X[:, 2], INSITU_REFERENCE_YEAR)

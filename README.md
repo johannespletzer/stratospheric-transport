@@ -106,7 +106,11 @@ Global defaults are in [src/residence_time/config.py](src/residence_time/config.
 - `PHYSICS_CONSTRAINT`: `"diffusivity"` or `"harmonic"`
 - `USE_TROPOPAUSE_FEATURES`
 - `DEFAULT_TIME_ENCODING_CONFIG`
+- `INSITU_REFERENCE_YEAR`
 - `LEARNING_RATE`
+
+Note: time encoding flags are intended for diffusivity mode. Harmonic mode expects the base time column only.
+Base time is represented as integer year; seasonal encodings are generated from a separate seasonal phase.
 
 ## Outputs
 
