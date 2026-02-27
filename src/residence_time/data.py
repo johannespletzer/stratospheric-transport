@@ -315,8 +315,17 @@ def extend_with_tropopause_features(
     features = ["tp_WMO_tro", "tp_WMO_sh_pol", "tp_WMO_nh_pol"]
     stds = ["tp_WMO_tro_std", "tp_WMO_sh_pol_std", "tp_WMO_nh_pol_std"]
 
-    tp_values = df.set_index("year_frac")[features]
-    tp_stds = df.set_index("year_frac")[stds]
+    tp_df = (
+        df[["year_frac", *features, *stds]]
+        .sort_values("year_frac")
+        .drop_duplicates(subset="year_frac", keep="last")
+    )
+    if tp_df.empty:
+        raise ValueError("No tropopause features found in CSV.")
+
+    tp_times = tp_df["year_frac"].to_numpy(dtype=float)
+    tp_values = tp_df[features].to_numpy(dtype=float)
+    tp_stds = tp_df[stds].to_numpy(dtype=float)
 
     times = X[:, 2]
     sources = X[:, 3]
@@ -325,14 +334,19 @@ def extend_with_tropopause_features(
     W = np.ones(X.shape[0])
     X_ext[:, :5] = X
 
-    for i, (t, sid) in enumerate(zip(times, sources)):
-        if sid != 0:
-            X_ext[i, 5:] = 0.0
-            W[i] = 1.0
-        else:
-            nearest_time = tp_values.index[np.abs(tp_values.index - t).argmin()]
-            X_ext[i, 5:] = tp_values.loc[nearest_time].values
-            std_vals = tp_stds.loc[nearest_time].values
-            W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)
+    sat_mask = sources == 0
+    if np.any(sat_mask):
+        sat_times = times[sat_mask]
+        right_idx = np.searchsorted(tp_times, sat_times, side="left")
+        left_idx = np.clip(right_idx - 1, 0, len(tp_times) - 1)
+        right_idx = np.clip(right_idx, 0, len(tp_times) - 1)
+
+        # Preserve argmin tie behavior: equal distances choose the lower-time index.
+        use_right = np.abs(tp_times[right_idx] - sat_times) < np.abs(sat_times - tp_times[left_idx])
+        nearest_idx = np.where(use_right, right_idx, left_idx)
+
+        X_ext[sat_mask, 5:] = tp_values[nearest_idx]
+        sat_stds = tp_stds[nearest_idx]
+        W[sat_mask] = 1.0 / (np.sum(sat_stds**2, axis=1) + 1e-8)
 
     return X_ext, W
