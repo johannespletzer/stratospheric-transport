@@ -159,14 +159,6 @@ tests/                # unit tests
 - If you see zero/empty training samples, verify data paths and `--tau-path` coverage.
 - ERA5 processing can be large; use a restricted year range while iterating.
 
-## Citation
-
-Please cite this project using [CITATION.cff](CITATION.cff).
-
-## License
-
-This project is licensed under [LICENSE](LICENSE).
-
 ## Acknowledgements
 
 This work builds on age-of-air and tropopause datasets from:
