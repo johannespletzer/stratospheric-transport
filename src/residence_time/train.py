@@ -48,6 +48,9 @@ def make_loader(
     device : str
         Device to move tensors to ('cuda' or 'cpu').
 
+    shuffle : bool, default=True
+        Whether to shuffle samples when iterating over batches.
+
     Returns
     -------
     DataLoader
