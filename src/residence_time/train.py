@@ -46,7 +46,7 @@ def make_loader(
         Number of samples per batch in the DataLoader.
 
     device : str
-        Device to move tensors to ('cuda' or 'cpu').
+        Target compute device ('cuda' or 'cpu'). Used to configure loader pinning.
 
     shuffle : bool, default=True
         Whether to shuffle samples when iterating over batches.
@@ -57,13 +57,14 @@ def make_loader(
         PyTorch DataLoader containing (X, Γ, W, τ_R) batches.
 
     """
-    X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
-    Gamma_tensor = torch.tensor(Gamma, dtype=torch.float32).unsqueeze(1).to(device)
-    W_tensor = torch.tensor(W, dtype=torch.float32).unsqueeze(1).to(device)
-    tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device)
+    X_tensor = torch.as_tensor(X, dtype=torch.float32)
+    Gamma_tensor = torch.as_tensor(Gamma, dtype=torch.float32).unsqueeze(1)
+    W_tensor = torch.as_tensor(W, dtype=torch.float32).unsqueeze(1)
+    tau_tensor = torch.as_tensor(tau, dtype=torch.float32).unsqueeze(1)
 
     dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    pin_memory = str(device).startswith("cuda")
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=pin_memory)
 
 
 def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, ColumnTransformer]:
@@ -275,7 +276,7 @@ def create_train_val_loaders(
         Fraction of the dataset to use for validation.
 
     device : str, default='cuda'
-        Device to which the tensors are moved (e.g., 'cuda' or 'cpu').
+        Target compute device used to configure DataLoader memory pinning.
 
     time_encoding_config : bool, default=DEFAULT_TIME_ENCODING_CONFIG
         Option to add features for seasonal and long-term trends
@@ -406,24 +407,29 @@ def train_model(
 
     """
     train_losses, val_losses, physics_losses, supervised_losses = [], [], [], []
+    model_device = next(model.parameters()).device
+    use_non_blocking = model_device.type == "cuda"
 
     for epoch in range(1, n_epochs + 1):
         model.train()
-        train_loss = 0
-        phys_loss_total = 0
-        sup_loss_total = 0
+        train_loss = 0.0
+        phys_loss_total = 0.0
+        sup_loss_total = 0.0
 
         # Exponentially decay physics constraint weight
         lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
         lambda_sup = lambda_sup_start
 
         for Xb, Gb, Wb, Tb in train_loader:
-            optimizer.zero_grad()  # always do this before backward()
-        
-            Gamma = Gb.clamp(min=1e-2)
-            tau_R_pred, D_pred = model(Xb)
+            Xb = Xb.to(model_device, non_blocking=use_non_blocking)
+            Gb = Gb.to(model_device, non_blocking=use_non_blocking)
+            Wb = Wb.to(model_device, non_blocking=use_non_blocking)
+            Tb = Tb.to(model_device, non_blocking=use_non_blocking)
+            optimizer.zero_grad(set_to_none=True)
         
             if PHYSICS_CONSTRAINT == "diffusivity":
+                Gamma = Gb.clamp(min=1e-2)
+                tau_R_pred, D_pred = model(Xb)
                 assert D_pred is not None, "D prediction required for diffusivity-based constraint."
 
                 D_clamped = D_pred.clamp(min=1e-2, max=10.0)
@@ -438,11 +444,11 @@ def train_model(
                 # Rebuild Xb_phys with t linked to autograd
                 Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
             
-                tau_R_pred_phys, _ = model(Xb_phys)
+                tau_R_pred, _ = model(Xb_phys)
             
                 dtau_dt = torch.autograd.grad(
-                    tau_R_pred_phys, t,
-                    grad_outputs=torch.ones_like(tau_R_pred_phys),
+                    tau_R_pred, t,
+                    grad_outputs=torch.ones_like(tau_R_pred),
                     create_graph=True
                 )[0]
             
@@ -452,20 +458,18 @@ def train_model(
                     create_graph=True
                 )[0]
             
-                #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
-                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
+                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
                 loss_phys = torch.mean(Wb * residual**2)
             
             else:
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-                loss_phys = torch.tensor(0.0, device=Xb.device)
         
             loss_sup = supervised_mse(tau_R_pred, Tb)
         
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
         
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 🔒 clip here
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # clip gradients
             optimizer.step()
 
             train_loss += loss.item()
@@ -483,53 +487,51 @@ def train_model(
 
         # Validation
         model.eval()
-        val_loss = 0
-        for Xb, Gb, Wb, Tb in val_loader:
-            Gamma = Gb.clamp(min=1e-2)
-            tau_R_pred, D_pred = model(Xb)
-
-            if PHYSICS_CONSTRAINT == 'diffusivity': 
-                with torch.no_grad():
+        val_loss = 0.0
+        if PHYSICS_CONSTRAINT == "diffusivity":
+            with torch.no_grad():
+                for Xb, Gb, Wb, Tb in val_loader:
+                    Xb = Xb.to(model_device, non_blocking=use_non_blocking)
+                    Gb = Gb.to(model_device, non_blocking=use_non_blocking)
+                    Wb = Wb.to(model_device, non_blocking=use_non_blocking)
+                    Tb = Tb.to(model_device, non_blocking=use_non_blocking)
+                    Gamma = Gb.clamp(min=1e-2)
+                    tau_R_pred, D_pred = model(Xb)
                     assert D_pred is not None, "D prediction required for diffusivity-based constraint."
-
                     D_clamped = D_pred.clamp(min=1e-2, max=10.0)
                     tau_R_phys = 2 * D_clamped**2 / Gamma
                     loss_phys = torch.mean(Wb * (tau_R_pred - tau_R_phys) ** 2)
-
-            elif PHYSICS_CONSTRAINT == "harmonic":
+                    loss_sup = supervised_mse(tau_R_pred, Tb)
+                    loss = lambda_phys * loss_phys + lambda_sup * loss_sup
+                    val_loss += loss.item()
+        elif PHYSICS_CONSTRAINT == "harmonic":
+            for Xb, _, Wb, Tb in val_loader:
+                Xb = Xb.to(model_device, non_blocking=use_non_blocking)
+                Wb = Wb.to(model_device, non_blocking=use_non_blocking)
+                Tb = Tb.to(model_device, non_blocking=use_non_blocking)
                 time_col = 2  # index of time in input
                 t = Xb[:, time_col].unsqueeze(1).clone()
                 t.requires_grad_(True)
-            
                 # Rebuild Xb_phys with t linked to autograd
-                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col+1:]], dim=1)
-            
-                tau_R_pred_phys, _ = model(Xb_phys)
-            
+                Xb_phys = torch.cat([Xb[:, :time_col], t, Xb[:, time_col + 1:]], dim=1)
+                tau_R_pred, _ = model(Xb_phys)
                 dtau_dt = torch.autograd.grad(
-                    tau_R_pred_phys, t,
-                    grad_outputs=torch.ones_like(tau_R_pred_phys),
+                    tau_R_pred, t,
+                    grad_outputs=torch.ones_like(tau_R_pred),
                     create_graph=True
                 )[0]
-            
                 d2tau_dt2 = torch.autograd.grad(
                     dtau_dt, t,
                     grad_outputs=torch.ones_like(dtau_dt),
-                    create_graph=True
+                    create_graph=False
                 )[0]
-            
-                #residual = d2tau_dt2 + (OMEGA ** 2) * tau_R_pred_phys
-                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred_phys - model.tauR_intercept)
+                residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
                 loss_phys = torch.mean(Wb * residual**2)
-                    
-            else:
-                raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
-                loss_phys = torch.tensor(0.0, device=Xb.device)
-
-            loss_sup = supervised_mse(tau_R_pred, Tb)
-
-            loss = lambda_phys * loss_phys + lambda_sup * loss_sup
-            val_loss += loss.item()
+                loss_sup = supervised_mse(tau_R_pred, Tb)
+                loss = lambda_phys * loss_phys + lambda_sup * loss_sup
+                val_loss += loss.item()
+        else:
+            raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
 
         n_val_batches = max(len(val_loader), 1)
         val_loss_mean = val_loss / n_val_batches
