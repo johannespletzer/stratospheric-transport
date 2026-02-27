@@ -174,7 +174,8 @@ def load_all_data_combined(
     insitu_paths: Optional[List[str]] = None,
     model_paths: Optional[List[str]] = None,
     time_range: Optional[Tuple[str, str]] = None,
-    trop_features: bool = USE_TROPOPAUSE_FEATURES
+    trop_features: bool = USE_TROPOPAUSE_FEATURES,
+    tropopause_csv_path: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load and combine satellite, in-situ, and model datasets into unified arrays.
 
@@ -194,6 +195,9 @@ def load_all_data_combined(
 
     trop_features : bool, optional
         Switch to extend satellite data with tropopause features.
+
+    tropopause_csv_path : str, optional
+        Optional explicit path for tropopause feature CSV.
 
     Returns
     -------
@@ -235,7 +239,7 @@ def load_all_data_combined(
 
     X_out = np.vstack(X_all)
     if trop_features:
-        X_out, W_tp = extend_with_tropopause_features(X_out)
+        X_out, W_tp = extend_with_tropopause_features(X_out, csv_path=tropopause_csv_path)
         W_out = np.concatenate(W_all) * W_tp
     else:
         W_out = np.concatenate(W_all)

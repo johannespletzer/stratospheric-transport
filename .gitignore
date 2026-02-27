@@ -26,6 +26,9 @@ share/python-wheels/
 *.egg
 MANIFEST
 data/
+runs/
+reports/compare/
+models/checkpoints/
 models/configs/
 
 # PyInstaller
