@@ -1,3 +1,4 @@
+from collections import ChainMap
 from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -7,7 +8,9 @@ import torch.nn as nn
 from sklearn.base import TransformerMixin
 from torch.utils.data import DataLoader
 
+from residence_time.config import DEFAULT_TIME_ENCODING_CONFIG, USE_TROPOPAUSE_FEATURES
 from residence_time.data import extend_with_tropopause_features
+from residence_time.train import apply_time_encoding
 
 
 def plot_physics_residual(
@@ -52,6 +55,8 @@ def plot_physics_residual(
             Gb = Gb.clamp(min=1e-4).to(device)
 
             tau_R_pred, D_pred = model(Xb)
+            if D_pred is None:
+                raise ValueError("Physics residual plotting requires a model with diffusivity output (D branch).")
             tau_R_phys = 2 * D_pred**2 / Gb
             residuals.append((tau_R_pred - tau_R_phys).cpu().numpy())
 
@@ -100,7 +105,8 @@ def plot_field_from_data(
     gamma_value: Optional[float] = None,
     device: str = 'cuda',
     return_data: bool = False,
-    use_tropopause_features: bool = False,
+    use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
+    time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
     tp_csv_path: Optional[str] = None,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Plot a spatial field (t_R or D) from a PINN model, optionally using tropopause features.
@@ -140,6 +146,9 @@ def plot_field_from_data(
     use_tropopause_features : bool, default=False
         Whether to include tropopause-based model inputs.
 
+    time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
+        Option to activate seasonal and annual features via config
+
     tp_csv_path : str, optional
         Path to the CSV file with tropopause features.
 
@@ -149,6 +158,13 @@ def plot_field_from_data(
         (lat_vals, alt_vals, field_grid) if return_data is True, else None.
 
     """
+    if field not in {"tau_R", "D"}:
+        raise ValueError("field must be one of {'tau_R', 'D'}")
+
+    if time_encoding_config is None:
+        time_encoding_config = {}
+    time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
+    
     model.eval()
 
     lat_min, lat_max = np.min(X[:, 0]), np.max(X[:, 0])
@@ -162,11 +178,16 @@ def plot_field_from_data(
     source_fixed = source_value if source_value is not None else np.median(X[:, 3])
     gamma_fixed = gamma_value if gamma_value is not None else np.median(X[:, 4])
 
-    time_array = np.full_like(lat_grid.flatten(), time_fixed)
+    time_array_raw = np.full_like(lat_grid.flatten(), time_fixed, dtype=float)
+    time_array_year = np.floor(time_array_raw)
+    time_array_phase = np.mod(time_array_raw - time_array_year, 1.0)
     source_array = np.full_like(lat_grid.flatten(), source_fixed)
     gamma_array = np.full_like(lat_grid.flatten(), gamma_fixed)
 
-    X_base = np.stack([lat_grid.flatten(), alt_grid.flatten(), time_array, source_array, gamma_array], axis=1)
+    X_base = np.stack(
+        [lat_grid.flatten(), alt_grid.flatten(), time_array_year, source_array, gamma_array],
+        axis=1
+    )
 
     if use_tropopause_features:
         X_full, _ = extend_with_tropopause_features(X_base, csv_path=tp_csv_path)
@@ -174,10 +195,17 @@ def plot_field_from_data(
         X_full = X_base
 
     X_scaled = scaler_X.transform(X_full)
+
+    if time_encoding_config["enabled"]:
+        X_scaled = apply_time_encoding(X_scaled, time_encoding_config, seasonal_phase=time_array_phase)
+
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
 
     with torch.no_grad():
         tau_R_pred, D_pred = model(X_tensor)
+
+    if field == "D" and D_pred is None:
+        raise ValueError("Requested field 'D' but the model has no diffusivity output branch.")
 
     field_pred = tau_R_pred if field == 'tau_R' else D_pred
     field_grid = field_pred.cpu().numpy().reshape(grid_res)
@@ -187,7 +215,7 @@ def plot_field_from_data(
     plt.xlabel("Latitude [°]")
     plt.ylabel("Altitude [km]")
 
-    time_label = float_to_year_month(time_fixed) if time_fixed > 1e4 else time_fixed
+    time_label = np.round(float_to_year_month(time_fixed) if time_fixed > 1e4 else time_fixed,2)
     plt.title(
         rf"Predicted {field} | time={time_label}, source={int(source_fixed)}, $\Gamma_{{EI}}$={gamma_fixed:.2f}"
     )

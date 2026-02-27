@@ -7,6 +7,7 @@ import xarray as xr
 from aerocalc3 import std_atm
 from scipy.interpolate import RegularGridInterpolator
 
+from residence_time.config import INSITU_REFERENCE_YEAR, USE_TROPOPAUSE_FEATURES
 from residence_time.utils import datetime64_to_year_fraction
 
 
@@ -23,7 +24,7 @@ def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarr
     Returns
     -------
     X : np.ndarray
-        Input array [N, 5] with columns [lat, alt, time=0, source_id=1, G].
+        Input array [N, 5] with columns [lat, alt, time=reference_year, source_id=1, G].
 
     Gamma : np.ndarray
         Mean age values (G), shape [N,].
@@ -58,7 +59,7 @@ def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarr
     age[use_co2] = co2_flat[use_co2]
     std[use_co2] = std_co2_flat[use_co2]
 
-    time = np.zeros_like(age)
+    time = np.full_like(age, INSITU_REFERENCE_YEAR, dtype=float)
     source = np.ones_like(age)
 
     valid = ~np.isnan(age) & ~np.isnan(std)
@@ -172,7 +173,8 @@ def load_all_data_combined(
     sat_paths: Optional[List[str]] = None,
     insitu_paths: Optional[List[str]] = None,
     model_paths: Optional[List[str]] = None,
-    time_range: Optional[Tuple[str, str]] = None
+    time_range: Optional[Tuple[str, str]] = None,
+    trop_features: bool = USE_TROPOPAUSE_FEATURES
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load and combine satellite, in-situ, and model datasets into unified arrays.
 
@@ -189,6 +191,9 @@ def load_all_data_combined(
 
     time_range : tuple of str, optional
         Optional time range to apply to satellite/model data.
+
+    trop_features : bool, optional
+        Switch to extend satellite data with tropopause features.
 
     Returns
     -------
@@ -225,10 +230,20 @@ def load_all_data_combined(
             Gamma_all.append(Gamma)
             W_all.append(W)
 
+    if not X_all:
+        raise ValueError("No input data provided. Set at least one of sat_paths, insitu_paths, or model_paths.")
+
+    X_out = np.vstack(X_all)
+    if trop_features:
+        X_out, W_tp = extend_with_tropopause_features(X_out)
+        W_out = np.concatenate(W_all) * W_tp
+    else:
+        W_out = np.concatenate(W_all)
+
     return (
-        np.vstack(X_all),
+        X_out,
         np.concatenate(Gamma_all),
-        np.concatenate(W_all)
+        W_out
     )
 
 
@@ -300,8 +315,17 @@ def extend_with_tropopause_features(
     features = ["tp_WMO_tro", "tp_WMO_sh_pol", "tp_WMO_nh_pol"]
     stds = ["tp_WMO_tro_std", "tp_WMO_sh_pol_std", "tp_WMO_nh_pol_std"]
 
-    tp_values = df.set_index("year_frac")[features]
-    tp_stds = df.set_index("year_frac")[stds]
+    tp_df = (
+        df[["year_frac", *features, *stds]]
+        .sort_values("year_frac")
+        .drop_duplicates(subset="year_frac", keep="last")
+    )
+    if tp_df.empty:
+        raise ValueError("No tropopause features found in CSV.")
+
+    tp_times = tp_df["year_frac"].to_numpy(dtype=float)
+    tp_values = tp_df[features].to_numpy(dtype=float)
+    tp_stds = tp_df[stds].to_numpy(dtype=float)
 
     times = X[:, 2]
     sources = X[:, 3]
@@ -310,14 +334,19 @@ def extend_with_tropopause_features(
     W = np.ones(X.shape[0])
     X_ext[:, :5] = X
 
-    for i, (t, sid) in enumerate(zip(times, sources)):
-        if sid != 0:
-            X_ext[i, 5:] = 0.0
-            W[i] = 1.0
-        else:
-            nearest_time = tp_values.index[np.abs(tp_values.index - t).argmin()]
-            X_ext[i, 5:] = tp_values.loc[nearest_time].values
-            std_vals = tp_stds.loc[nearest_time].values
-            W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)
+    sat_mask = sources == 0
+    if np.any(sat_mask):
+        sat_times = times[sat_mask]
+        right_idx = np.searchsorted(tp_times, sat_times, side="left")
+        left_idx = np.clip(right_idx - 1, 0, len(tp_times) - 1)
+        right_idx = np.clip(right_idx, 0, len(tp_times) - 1)
+
+        # Preserve argmin tie behavior: equal distances choose the lower-time index.
+        use_right = np.abs(tp_times[right_idx] - sat_times) < np.abs(sat_times - tp_times[left_idx])
+        nearest_idx = np.where(use_right, right_idx, left_idx)
+
+        X_ext[sat_mask, 5:] = tp_values[nearest_idx]
+        sat_stds = tp_stds[nearest_idx]
+        W[sat_mask] = 1.0 / (np.sum(sat_stds**2, axis=1) + 1e-8)
 
     return X_ext, W

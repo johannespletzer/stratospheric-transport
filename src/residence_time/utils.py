@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 from datetime import datetime
 from typing import Optional, Union
@@ -36,6 +37,32 @@ def datetime64_to_year_fraction(
     fraction = (t - start_of_year) / (start_of_next_year - start_of_year)
     return (year + fraction.values).to_numpy()
 
+def year_fraction_to_datetime64(
+    year_frac: Union[np.ndarray, list, float]
+) -> np.ndarray:
+    """Convert fractional years to datetime64[ns].
+
+    Parameters
+    ----------
+    year_frac : float, list, or np.ndarray
+        Fractional years (e.g. 2004.04).
+
+    Returns
+    -------
+    np.ndarray
+        Array of datetime64[ns] corresponding to the input fractional years.
+
+    """
+    year_frac = np.atleast_1d(year_frac).astype(float)
+    years = np.floor(year_frac).astype(int)
+    frac = year_frac - years
+
+    start_of_year = pd.to_datetime(years.astype(str))
+    start_of_next_year = pd.to_datetime((years + 1).astype(str))
+    delta = (start_of_next_year - start_of_year) * frac
+
+    result = start_of_year + delta
+    return result.to_numpy()
 
 def load_checkpoint(
     model: nn.Module,
@@ -68,7 +95,7 @@ def load_checkpoint(
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device(device), weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     if optimizer and "optimizer_state_dict" in checkpoint:
@@ -227,3 +254,69 @@ def save_scaler(
     joblib.dump(scaler, scaler_path)
 
     return scaler_path
+
+
+def save_config(config: dict, checkpoint_dir: Optional[str] = None) -> str:
+    """Save a config dictionary with a timestamped filename and a latest pointer.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration to save.
+    checkpoint_dir : str, optional
+        Directory to save to. Defaults to 'models/configs' in the project root.
+
+    Returns
+    -------
+    str : Full path to the saved config file.
+
+    """
+    if checkpoint_dir is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        checkpoint_dir = os.path.join(project_root, "models", "configs")
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"time_config_{timestamp}.json"
+    path = os.path.join(checkpoint_dir, filename)
+
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"Saved config to: {path}")
+    return path
+
+
+def load_config(checkpoint_dir: Optional[str] = None) -> Optional[dict]:
+    """Load the most recently saved time encoding config.
+
+    Parameters
+    ----------
+    checkpoint_dir : str, optional
+        Directory to load from. Defaults to 'models/configs' in the project root.
+
+    Returns
+    -------
+    dict or None
+
+    """
+    if checkpoint_dir is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
+        checkpoint_dir = os.path.join(project_root, "models", "configs")
+
+    pattern = os.path.join(checkpoint_dir, "time_config_*.json")
+    config_files = sorted(glob.glob(pattern))
+
+    if not config_files:
+        print(f"No config found in: {checkpoint_dir}")
+        return None
+
+    latest_config = config_files[-1]
+    with open(latest_config) as f:
+        config = json.load(f)
+
+    print(f"Loaded config from: {latest_config}")
+    return config

@@ -4,7 +4,7 @@ on:
   push:
     branches: [master, devel]
   pull_request:
-    branches: [master]
+    branches: [master, devel]
 
 jobs:
   build:
@@ -32,4 +32,5 @@ jobs:
         run: ruff check src/ tests/ scripts/
 
       - name: Run tests
-        run: pytest -v --ignore=tests/test_scripts.py
+        timeout-minutes: 15
+        run: pytest -v
