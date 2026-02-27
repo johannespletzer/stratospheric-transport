@@ -55,6 +55,8 @@ def plot_physics_residual(
             Gb = Gb.clamp(min=1e-4).to(device)
 
             tau_R_pred, D_pred = model(Xb)
+            if D_pred is None:
+                raise ValueError("Physics residual plotting requires a model with diffusivity output (D branch).")
             tau_R_phys = 2 * D_pred**2 / Gb
             residuals.append((tau_R_pred - tau_R_phys).cpu().numpy())
 
@@ -156,6 +158,11 @@ def plot_field_from_data(
         (lat_vals, alt_vals, field_grid) if return_data is True, else None.
 
     """
+    if field not in {"tau_R", "D"}:
+        raise ValueError("field must be one of {'tau_R', 'D'}")
+
+    if time_encoding_config is None:
+        time_encoding_config = {}
     time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
     
     model.eval()
@@ -191,6 +198,9 @@ def plot_field_from_data(
 
     with torch.no_grad():
         tau_R_pred, D_pred = model(X_tensor)
+
+    if field == "D" and D_pred is None:
+        raise ValueError("Requested field 'D' but the model has no diffusivity output branch.")
 
     field_pred = tau_R_pred if field == 'tau_R' else D_pred
     field_grid = field_pred.cpu().numpy().reshape(grid_res)

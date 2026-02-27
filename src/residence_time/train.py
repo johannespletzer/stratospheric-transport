@@ -23,7 +23,8 @@ def make_loader(
     W: np.ndarray,
     tau: np.ndarray,
     batch_size: int,
-    device: str
+    device: str,
+    shuffle: bool = True
 ) -> DataLoader:
     """Convert input arrays into a PyTorch DataLoader for training or validation.
 
@@ -59,18 +60,13 @@ def make_loader(
     tau_tensor = torch.tensor(tau, dtype=torch.float32).unsqueeze(1).to(device)
 
     dataset = TensorDataset(X_tensor, Gamma_tensor, W_tensor, tau_tensor)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
-def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, MinMaxScaler]:
-    """Scale features for model training."""
-    if default:
-        scaler_X = StandardScaler()
-    else:
-        scaler_X = MinMaxScaler()
-    X_scaled = scaler_X.fit_transform(X_obs)
-
-    return X_scaled, scaler_X
+def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, ColumnTransformer]:
+    """Backward-compatible wrapper for column-wise feature scaling."""
+    scaler_name = 'StandardScaler' if default else 'MinMaxScaler'
+    return scale_variables_columnwise(X_obs, scaler=scaler_name)
 
 
 def add_cyclical_time_features(X: np.ndarray, time_col: int = 2) -> np.ndarray:
@@ -287,8 +283,23 @@ def create_train_val_loaders(
         X_train = apply_time_encoding(X_train, time_encoding_config)
         X_val = apply_time_encoding(X_val, time_encoding_config)
 
-    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device), \
-           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device)
+    return make_loader(X_train, Gamma_train, W_train, tau_train, batch_size, device, shuffle=True), \
+           make_loader(X_val, Gamma_val, W_val, tau_val, batch_size, device, shuffle=False)
+
+
+def supervised_mse(
+    tau_R_pred: torch.Tensor,
+    tau_target: torch.Tensor
+) -> torch.Tensor:
+    """Compute supervised MSE only on finite target values."""
+    if tau_target is None:
+        return torch.tensor(0.0, device=tau_R_pred.device)
+
+    valid_mask = torch.isfinite(tau_target)
+    if not torch.any(valid_mask):
+        return torch.tensor(0.0, device=tau_R_pred.device)
+
+    return torch.mean((tau_R_pred[valid_mask] - tau_target[valid_mask])**2)
 
 
 def train_model(
@@ -349,9 +360,6 @@ def train_model(
         lambda_phys = lambda_phys_start * (decay_rate ** (epoch // 30))
         lambda_sup = lambda_sup_start
 
-        # Deactivate D_pred if harmonic oscillator constrains neural network
-        model.include_D = False if PHYSICS_CONSTRAINT == "harmonic" else True
-
         for Xb, Gb, Wb, Tb in train_loader:
             optimizer.zero_grad()  # always do this before backward()
         
@@ -395,7 +403,7 @@ def train_model(
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
                 loss_phys = torch.tensor(0.0, device=Xb.device)
         
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            loss_sup = supervised_mse(tau_R_pred, Tb)
         
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
         
@@ -407,9 +415,14 @@ def train_model(
             phys_loss_total += loss_phys.item()
             sup_loss_total += loss_sup.item()
 
-        train_losses.append(train_loss)
-        physics_losses.append(phys_loss_total)
-        supervised_losses.append(sup_loss_total)
+        n_train_batches = max(len(train_loader), 1)
+        train_loss_mean = train_loss / n_train_batches
+        phys_loss_mean = phys_loss_total / n_train_batches
+        sup_loss_mean = sup_loss_total / n_train_batches
+
+        train_losses.append(train_loss_mean)
+        physics_losses.append(phys_loss_mean)
+        supervised_losses.append(sup_loss_mean)
 
         # Validation
         model.eval()
@@ -456,15 +469,17 @@ def train_model(
                 raise ValueError(f"Unknown physics constraint: {PHYSICS_CONSTRAINT}")
                 loss_phys = torch.tensor(0.0, device=Xb.device)
 
-            loss_sup = torch.mean((tau_R_pred - Tb)**2) if Tb is not None else torch.tensor(0.0, device=Xb.device)
+            loss_sup = supervised_mse(tau_R_pred, Tb)
 
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
             val_loss += loss.item()
 
-        val_losses.append(val_loss)
+        n_val_batches = max(len(val_loader), 1)
+        val_loss_mean = val_loss / n_val_batches
+        val_losses.append(val_loss_mean)
 
         if (epoch % 10 == 0) or (epoch==1):
-            print(f"Epoch {epoch:4d} | Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e} | "
-                  f"Phys Loss: {loss_phys:.2e} | Sup Loss: {loss_sup:.2e}")
+            print(f"Epoch {epoch:4d} | Train Loss: {train_loss_mean:.4e} | Val Loss: {val_loss_mean:.4e} | "
+                  f"Phys Loss: {phys_loss_mean:.2e} | Sup Loss: {sup_loss_mean:.2e}")
 
     return train_losses, val_losses, physics_losses, supervised_losses

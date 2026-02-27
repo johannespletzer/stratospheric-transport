@@ -230,14 +230,20 @@ def load_all_data_combined(
             Gamma_all.append(Gamma)
             W_all.append(W)
 
+    if not X_all:
+        raise ValueError("No input data provided. Set at least one of sat_paths, insitu_paths, or model_paths.")
+
     X_out = np.vstack(X_all)
     if trop_features:
-        X_out = extend_with_tropopause_features(X_out)
+        X_out, W_tp = extend_with_tropopause_features(X_out)
+        W_out = np.concatenate(W_all) * W_tp
+    else:
+        W_out = np.concatenate(W_all)
 
     return (
         X_out,
         np.concatenate(Gamma_all),
-        np.concatenate(W_all)
+        W_out
     )
 
 
