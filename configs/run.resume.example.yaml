@@ -1,0 +1,62 @@
+run:
+  run_id: finetune_from_baseline
+  output_root: runs
+
+data:
+  sat_paths:
+    - data/age_of_air/my_new_satellite.nc
+  insitu_paths: []
+  model_paths: []
+  tau_path: null
+  tropopause_csv: null
+
+  use_tropopause_features: false
+  time_start: null
+  time_end: null
+  scaler: StandardScaler
+
+  autodiscover:
+    enabled: true
+    search_roots:
+      - data
+    discover_model_paths: false
+    discover_tau_path: false
+
+model:
+  hidden_dim: 64
+  hidden_layers: 3
+  disable_d_output: false
+  checkpoint_name: model_checkpoint.pth
+
+resume:
+  enabled: true
+  checkpoint_path: runs/baseline_example/model_checkpoint.pth
+  source_config_path: runs/baseline_example/resolved_config.yaml
+  load_optimizer: true
+  load_scaler: true
+
+training:
+  batch_size: 256
+  val_split: 0.2
+  epochs: 100
+  learning_rate: 0.0001
+  lambda_phys_start: 1.0
+  lambda_sup_start: 1.0
+  decay_rate: 0.95
+
+time_encoding:
+  enabled: false
+  use_cyclical: false
+  use_rbf_seasonal: false
+  use_rbf_absolute: false
+  n_rbf_seasonal: 12
+  n_rbf_absolute: 24
+  gamma_seasonal: 100.0
+  gamma_absolute: 5.0
+  t_min: 1980.0
+  t_max: 2025.0
+  time_col: 2
+
+runtime:
+  device: null
+  seed: 42

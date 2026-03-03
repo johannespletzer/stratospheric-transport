@@ -1,4 +1,6 @@
 PYTHON ?= python
+RESUME_OPT_FLAG := $(if $(filter true,$(RESUME_LOAD_OPT)),--resume-load-optimizer,$(if $(filter false,$(RESUME_LOAD_OPT)),--no-resume-load-optimizer,))
+RESUME_SCALER_FLAG := $(if $(filter true,$(RESUME_LOAD_SCALER)),--resume-load-scaler,$(if $(filter false,$(RESUME_LOAD_SCALER)),--no-resume-load-scaler,))
 
 .PHONY: setup train plot compare
 
@@ -8,7 +10,11 @@ setup:
 
 train:
 	@test -n "$(CONFIG)" || (echo "Usage: make train CONFIG=configs/run.example.yaml" && exit 1)
-	$(PYTHON) scripts/workflow.py train --config "$(CONFIG)"
+	$(PYTHON) scripts/workflow.py train --config "$(CONFIG)" \
+		$(if $(RESUME_FROM),--resume-from "$(RESUME_FROM)",) \
+		$(if $(RESUME_CONFIG),--resume-config "$(RESUME_CONFIG)",) \
+		$(RESUME_OPT_FLAG) \
+		$(RESUME_SCALER_FLAG)
 
 plot:
 	@test -n "$(RUN_DIR)" || (echo "Usage: make plot RUN_DIR=runs/<run_id>" && exit 1)

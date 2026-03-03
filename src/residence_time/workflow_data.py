@@ -84,6 +84,13 @@ def get_default_workflow_config() -> dict[str, Any]:
             "disable_d_output": False,
             "checkpoint_name": "model_checkpoint.pth",
         },
+        "resume": {
+            "enabled": False,
+            "checkpoint_path": None,
+            "source_config_path": None,
+            "load_optimizer": True,
+            "load_scaler": True,
+        },
         "training": {
             "batch_size": 256,
             "val_split": 0.2,

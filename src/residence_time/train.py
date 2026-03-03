@@ -246,6 +246,46 @@ def extract_phase_and_scale(
     return X_scaled, scaler_X, seasonal_phase, time_std
 
 
+def extract_phase_and_transform_with_scaler(
+    X: np.ndarray,
+    scaler_X: ColumnTransformer,
+) -> Tuple[np.ndarray, np.ndarray, float]:
+    """Extract seasonal phase and transform features with a pre-fitted scaler.
+
+    This is the resume-training counterpart of ``extract_phase_and_scale``:
+    it reuses an already fitted transformer instead of refitting on new data.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Feature array [N, D] whose column 2 contains fractional-year time.
+        **Modified in-place** (time column replaced with floored years).
+    scaler_X : ColumnTransformer
+        Previously fitted scaler/transformer from a checkpoint.
+
+    Returns
+    -------
+    X_scaled : np.ndarray
+    seasonal_phase : np.ndarray
+    time_std : float
+
+    """
+    if not hasattr(scaler_X, "transform"):
+        raise TypeError("Loaded scaler must implement a transform(X) method.")
+
+    seasonal_phase = np.mod(X[:, 2], 1.0)
+    X[:, 2] = np.floor(X[:, 2])
+    X_scaled = np.asarray(scaler_X.transform(X))
+
+    time_transformer = scaler_X.named_transformers_.get("time")
+    if time_transformer is None or not hasattr(time_transformer, "scale_"):
+        raise ValueError(
+            "Loaded scaler is missing a fitted 'time' transformer with a 'scale_' attribute."
+        )
+    time_std = float(time_transformer.scale_[0])
+    return X_scaled, seasonal_phase, time_std
+
+
 def scale_variables_columnwise(
     X_obs: np.ndarray,
     scaler: str = 'StandardScaler'
