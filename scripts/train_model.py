@@ -3,6 +3,7 @@
 import argparse
 from typing import Dict, Optional, Tuple
 
+import numpy as np
 import torch
 
 from residence_time.config import (
@@ -160,7 +161,14 @@ def main() -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering. Check data paths and tau interpolation coverage.")
 
+    # Extract seasonal phase before scaling (scaling makes floor/mod meaningless).
+    seasonal_phase = np.mod(X[:, 2], 1.0)
+    X[:, 2] = np.floor(X[:, 2])
+
     X_scaled, scaler_X = scale_variables_columnwise(X, scaler=args.scaler)
+
+    # Extract time_std for harmonic chain-rule correction.
+    time_std = float(scaler_X.named_transformers_["time"].scale_[0])
 
     train_loader, val_loader = create_train_val_loaders(
         X_scaled,
@@ -171,6 +179,7 @@ def main() -> None:
         val_split=args.val_split,
         device=device,
         time_encoding_config=time_config,
+        seasonal_phase=seasonal_phase,
     )
 
     model = PINNModel(
@@ -193,6 +202,7 @@ def main() -> None:
         lambda_phys_start=args.lambda_phys_start,
         lambda_sup_start=args.lambda_sup_start,
         decay_rate=args.decay_rate,
+        time_std=time_std,
     )
 
     save_checkpoint(model, optimizer, name=args.checkpoint_name, scaler=scaler_X)

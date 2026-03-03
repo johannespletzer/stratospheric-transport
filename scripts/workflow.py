@@ -324,10 +324,18 @@ def run_train(args: argparse.Namespace) -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering/interpolation.")
 
+    # Extract seasonal phase before scaling (scaling makes floor/mod meaningless).
+    seasonal_phase = np.mod(X[:, 2], 1.0)
+    X[:, 2] = np.floor(X[:, 2])
+
     x_scaled, scaler_x = scale_variables_columnwise(
         X,
         scaler=str(data_cfg.get("scaler", "StandardScaler")),
     )
+
+    # Extract time_std for harmonic chain-rule correction.
+    time_std = float(scaler_x.named_transformers_["time"].scale_[0])
+
     train_loader, val_loader = create_train_val_loaders(
         x_scaled,
         gamma,
@@ -337,6 +345,7 @@ def run_train(args: argparse.Namespace) -> None:
         val_split=float(train_cfg["val_split"]),
         device=device,
         time_encoding_config=time_cfg,
+        seasonal_phase=seasonal_phase,
     )
 
     model = PINNModel(
@@ -358,6 +367,7 @@ def run_train(args: argparse.Namespace) -> None:
         lambda_phys_start=float(train_cfg["lambda_phys_start"]),
         lambda_sup_start=float(train_cfg["lambda_sup_start"]),
         decay_rate=float(train_cfg["decay_rate"]),
+        time_std=time_std,
     )
 
     checkpoint_name = str(model_cfg.get("checkpoint_name", "model_checkpoint.pth"))

@@ -100,32 +100,37 @@ def test_train_model_without_supervised_targets_stays_finite() -> None:
     assert supervised_losses[0] == 0.0
 
 
-def test_scale_variables_columnwise_preserves_time_column() -> None:
-    """Time feature must remain in absolute year units after scaling."""
+def test_scale_variables_columnwise_scales_time_column() -> None:
+    """Time feature must be standardized after scaling (no longer passthrough)."""
     X = np.array(
         [
-            [10.0, 18.0, 1985.25, 0.0, 2.0],
-            [-5.0, 22.0, 2010.75, 1.0, 3.0],
-            [30.0, 25.0, 2020.50, 2.0, 2.5],
+            [10.0, 18.0, 1985.0, 0.0, 2.0],
+            [-5.0, 22.0, 2010.0, 1.0, 3.0],
+            [30.0, 25.0, 2020.0, 2.0, 2.5],
         ]
     )
-    X_scaled, _ = scale_variables_columnwise(X, scaler="StandardScaler")
-    np.testing.assert_allclose(X_scaled[:, 2], X[:, 2])
+    X_scaled, scaler = scale_variables_columnwise(X, scaler="StandardScaler")
+    # Time should now be standardized, not equal to original year values.
+    assert not np.allclose(X_scaled[:, 2], X[:, 2])
+    # Standardized time should have approximately zero mean.
+    np.testing.assert_allclose(X_scaled[:, 2].mean(), 0.0, atol=1e-10)
 
 
 def test_scale_variables_columnwise_keeps_additional_features() -> None:
     """Scaling must preserve extra feature columns (e.g., tropopause features)."""
     X = np.array(
         [
-            [10.0, 18.0, 1985.25, 0.0, 2.0, 100.0, 200.0, 300.0],
-            [-5.0, 22.0, 2010.75, 1.0, 3.0, 110.0, 210.0, 310.0],
-            [30.0, 25.0, 2020.50, 2.0, 2.5, 120.0, 220.0, 320.0],
+            [10.0, 18.0, 1985.0, 0.0, 2.0, 100.0, 200.0, 300.0],
+            [-5.0, 22.0, 2010.0, 1.0, 3.0, 110.0, 210.0, 310.0],
+            [30.0, 25.0, 2020.0, 2.0, 2.5, 120.0, 220.0, 320.0],
         ]
     )
     X_scaled, _ = scale_variables_columnwise(X, scaler="StandardScaler")
     assert X_scaled.shape == X.shape
-    np.testing.assert_allclose(X_scaled[:, 2], X[:, 2])
-    np.testing.assert_allclose(X_scaled[:, 3], X[:, 3])
+    # Time is now standardized, not preserved.
+    assert not np.allclose(X_scaled[:, 2], X[:, 2])
+    # Source ID is centered: {0, 1, 2} -> {-1, 0, 1}.
+    np.testing.assert_allclose(X_scaled[:, 3], X[:, 3] - 1)
     assert not np.allclose(X_scaled[:, 5:], X[:, 5:])
 
 
@@ -203,8 +208,8 @@ def test_train_model_requires_d_branch_for_diffusivity(monkeypatch: pytest.Monke
         )
 
 
-def test_create_train_val_loaders_uses_integer_year_base_time() -> None:
-    """Base time feature should be integer year after loader preprocessing."""
+def test_create_train_val_loaders_fallback_floors_time() -> None:
+    """Fallback path (no seasonal_phase) should floor the time column."""
     X = np.array(
         [
             [0.0, 20.0, 2000.10, 0.0, 2.0],
@@ -217,6 +222,8 @@ def test_create_train_val_loaders_uses_integer_year_base_time() -> None:
     W = np.ones(4)
     tau = np.ones(4)
 
+    # Without seasonal_phase, the function extracts phase internally and
+    # replaces the time column with floor(time).
     train_loader, val_loader = create_train_val_loaders(
         X, Gamma, W, tau_R=tau, batch_size=2, val_split=0.5, device="cpu"
     )

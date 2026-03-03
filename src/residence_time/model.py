@@ -33,8 +33,8 @@ class PINNModel(nn.Module):
         Whether to include a separate output branch for diffusivity D.
 
     use_tropopause_features : bool, default=USE_TROPOPAUSE_FEATURES
-        If True, the model expects 3 additional input features:
-        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
+        If True, the model expects 4 additional input features:
+        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol, tropopause_present].
 
     time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
         Option to activate seasonal and annual features via config
@@ -58,7 +58,8 @@ class PINNModel(nn.Module):
         time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
 
         # Adjust input dimension if other features are included
-        effective_input_dim = input_dim + (3 if use_tropopause_features else 0)
+        # Tropopause adds 4 columns: 3 features + 1 presence indicator.
+        effective_input_dim = input_dim + (4 if use_tropopause_features else 0)
 
         if time_encoding_config.get("enabled", False):
             effective_input_dim += 2 if time_encoding_config["use_cyclical"] else 0
