@@ -211,6 +211,41 @@ def _uncenter_source(x: np.ndarray) -> np.ndarray:
     return x + 1
 
 
+def extract_phase_and_scale(
+    X: np.ndarray,
+    scaler: str = 'StandardScaler',
+) -> Tuple[np.ndarray, 'ColumnTransformer', np.ndarray, float]:
+    """Extract seasonal phase, floor time, scale features, and return time_std.
+
+    This consolidates the pre-scaling steps shared by training entry points:
+    1. Extract fractional-year phase from the time column.
+    2. Replace the time column with integer years.
+    3. Scale all columns via ``scale_variables_columnwise``.
+    4. Read out the time standard deviation for harmonic chain-rule correction.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Feature array [N, D] whose column 2 contains fractional-year time.
+        **Modified in-place** (time column replaced with floored years).
+    scaler : str
+        Scaler name forwarded to ``scale_variables_columnwise``.
+
+    Returns
+    -------
+    X_scaled : np.ndarray
+    scaler_X : ColumnTransformer
+    seasonal_phase : np.ndarray
+    time_std : float
+
+    """
+    seasonal_phase = np.mod(X[:, 2], 1.0)
+    X[:, 2] = np.floor(X[:, 2])
+    X_scaled, scaler_X = scale_variables_columnwise(X, scaler=scaler)
+    time_std = float(scaler_X.named_transformers_["time"].scale_[0])
+    return X_scaled, scaler_X, seasonal_phase, time_std
+
+
 def scale_variables_columnwise(
     X_obs: np.ndarray,
     scaler: str = 'StandardScaler'
@@ -616,6 +651,7 @@ def train_model(
                     Wb,
                     Tb,
                     harmonic_second_derivative_graph=False,
+                    time_std=time_std,
                 )
                 loss = lambda_phys * loss_phys + lambda_sup * loss_sup
                 val_loss += loss.item()

@@ -22,7 +22,7 @@ from residence_time.data import load_all_data_combined, load_tau_R
 from residence_time.model import PINNModel
 from residence_time.train import (
     create_train_val_loaders,
-    scale_variables_columnwise,
+    extract_phase_and_scale,
     train_model,
 )
 from residence_time.utils import save_checkpoint
@@ -324,17 +324,10 @@ def run_train(args: argparse.Namespace) -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering/interpolation.")
 
-    # Extract seasonal phase before scaling (scaling makes floor/mod meaningless).
-    seasonal_phase = np.mod(X[:, 2], 1.0)
-    X[:, 2] = np.floor(X[:, 2])
-
-    x_scaled, scaler_x = scale_variables_columnwise(
+    x_scaled, scaler_x, seasonal_phase, time_std = extract_phase_and_scale(
         X,
         scaler=str(data_cfg.get("scaler", "StandardScaler")),
     )
-
-    # Extract time_std for harmonic chain-rule correction.
-    time_std = float(scaler_x.named_transformers_["time"].scale_[0])
 
     train_loader, val_loader = create_train_val_loaders(
         x_scaled,

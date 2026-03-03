@@ -3,7 +3,6 @@
 import argparse
 from typing import Dict, Optional, Tuple
 
-import numpy as np
 import torch
 
 from residence_time.config import (
@@ -16,7 +15,7 @@ from residence_time.data import load_all_data_combined, load_tau_R
 from residence_time.model import PINNModel
 from residence_time.train import (
     create_train_val_loaders,
-    scale_variables_columnwise,
+    extract_phase_and_scale,
     train_model,
 )
 from residence_time.utils import save_checkpoint, save_config
@@ -161,14 +160,7 @@ def main() -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering. Check data paths and tau interpolation coverage.")
 
-    # Extract seasonal phase before scaling (scaling makes floor/mod meaningless).
-    seasonal_phase = np.mod(X[:, 2], 1.0)
-    X[:, 2] = np.floor(X[:, 2])
-
-    X_scaled, scaler_X = scale_variables_columnwise(X, scaler=args.scaler)
-
-    # Extract time_std for harmonic chain-rule correction.
-    time_std = float(scaler_X.named_transformers_["time"].scale_[0])
+    X_scaled, scaler_X, seasonal_phase, time_std = extract_phase_and_scale(X, scaler=args.scaler)
 
     train_loader, val_loader = create_train_val_loaders(
         X_scaled,
