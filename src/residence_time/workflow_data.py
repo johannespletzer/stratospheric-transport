@@ -18,6 +18,21 @@ from residence_time.config import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def parse_time_range(
+    time_start: str | None,
+    time_end: str | None,
+) -> tuple[str, str] | None:
+    """Build optional time-range tuple from config or CLI values.
+
+    Raises ``ValueError`` if only one of the two bounds is set.
+    """
+    if time_start is None and time_end is None:
+        return None
+    if time_start is None or time_end is None:
+        raise ValueError("Both time_start and time_end must be provided together.")
+    return (time_start, time_end)
 REQUIRED_TROPOPAUSE_COLUMNS = {
     "time",
     "tp_WMO_tro",
@@ -83,6 +98,13 @@ def get_default_workflow_config() -> dict[str, Any]:
             "hidden_layers": 3,
             "disable_d_output": False,
             "checkpoint_name": "model_checkpoint.pth",
+        },
+        "resume": {
+            "enabled": False,
+            "checkpoint_path": None,
+            "source_config_path": None,
+            "load_optimizer": True,
+            "load_scaler": True,
         },
         "training": {
             "batch_size": 256,

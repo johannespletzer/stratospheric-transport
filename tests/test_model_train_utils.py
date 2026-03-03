@@ -8,7 +8,7 @@ from residence_time.train import (
     add_rbf_time_features,
     apply_time_encoding,
     create_train_val_loaders,
-    scale_variables,
+    extract_phase_and_transform_with_scaler,
     scale_variables_columnwise,
     train_model,
 )
@@ -57,7 +57,7 @@ def test_train_val_loader_shapes() -> None:
 def test_scale_variables_shape() -> None:
     """Verify that scaled output has correct shape and type."""
     X = np.random.rand(100, 5)
-    X_scaled, scaler = scale_variables(X)
+    X_scaled, scaler = scale_variables_columnwise(X)
     assert X_scaled.shape == X.shape
     assert hasattr(scaler, "transform")
 
@@ -248,3 +248,36 @@ def test_apply_time_encoding_season_is_independent_from_base_year() -> None:
     X_enc = apply_time_encoding(X, cfg, seasonal_phase=phase)
     # last two columns are sin/cos cyclical features
     np.testing.assert_allclose(X_enc[0, -2:], X_enc[1, -2:])
+
+
+def test_extract_phase_and_transform_with_prefit_scaler() -> None:
+    """Resume helper should transform with an existing fitted scaler."""
+    X_fit = np.array(
+        [
+            [0.0, 20.0, 2000.0, 0.0, 2.0],
+            [1.0, 21.0, 2001.0, 1.0, 2.1],
+            [2.0, 22.0, 2002.0, 2.0, 2.2],
+        ]
+    )
+    fitted_input = X_fit.copy()
+    fitted_input[:, 2] = np.floor(fitted_input[:, 2])
+    _, scaler = scale_variables_columnwise(fitted_input, scaler="StandardScaler")
+
+    X_new = np.array(
+        [
+            [3.0, 23.0, 2003.25, 0.0, 2.3],
+            [4.0, 24.0, 2004.75, 1.0, 2.4],
+        ]
+    )
+    X_expected = X_new.copy()
+    expected_phase = np.mod(X_expected[:, 2], 1.0)
+    X_expected[:, 2] = np.floor(X_expected[:, 2])
+
+    X_scaled, seasonal_phase, time_std = extract_phase_and_transform_with_scaler(
+        X_new,
+        scaler_X=scaler,
+    )
+
+    np.testing.assert_allclose(seasonal_phase, expected_phase)
+    np.testing.assert_allclose(X_scaled, scaler.transform(X_expected))
+    assert np.isclose(time_std, float(scaler.named_transformers_["time"].scale_[0]))

@@ -30,6 +30,7 @@ python scripts/workflow.py compare --run-dirs runs/<run_a> runs/<run_b> --output
 ```bash
 make setup
 make train CONFIG=configs/run.example.yaml
+make train CONFIG=configs/run.resume.example.yaml
 make plot RUN_DIR=runs/<run_id>
 make compare RUN_DIRS="runs/<run_a> runs/<run_b>" OUTPUT_DIR=reports/compare/latest
 ```
@@ -45,7 +46,7 @@ python -m pip install -e ".[dev]"
 
 ## Run Config (Hybrid Path Resolution)
 
-See `configs/run.example.yaml`.
+See `configs/run.example.yaml` and `configs/run.resume.example.yaml`.
 
 Path precedence for training data is:
 
@@ -74,6 +75,37 @@ Tropopause CSV resolution:
 1. explicit CLI/YAML `tropopause_csv`
 2. exact default `data/tropopause/tropopause_features_monthly.csv`
 3. first discovered CSV with required tropopause feature columns
+
+Resume options:
+
+- `resume.enabled: true` enables checkpoint loading before training starts
+- `resume.checkpoint_path` points to a previous `.pth` checkpoint
+- `resume.source_config_path` optionally records the original run config path
+- `resume.load_optimizer` and `resume.load_scaler` control which states are restored
+
+CLI overrides for `workflow train`:
+
+- `--resume-from <checkpoint_path>`
+- `--resume-config <resolved_config.yaml>`
+- `--resume-load-optimizer` / `--no-resume-load-optimizer`
+- `--resume-load-scaler` / `--no-resume-load-scaler`
+
+Makefile passthrough variables:
+
+- `RESUME_FROM`
+- `RESUME_CONFIG`
+- `RESUME_LOAD_OPT=true|false`
+- `RESUME_LOAD_SCALER=true|false`
+
+Examples:
+
+```bash
+python scripts/workflow.py train --config configs/run.resume.example.yaml
+python scripts/workflow.py train --config configs/run.resume.example.yaml --resume-from runs/baseline_example/model_checkpoint.pth
+
+make train CONFIG=configs/run.resume.example.yaml
+make train CONFIG=configs/run.resume.example.yaml RESUME_FROM=runs/baseline_example/model_checkpoint.pth
+```
 
 ## Data Preparation
 
@@ -104,6 +136,7 @@ runs/<run_id>/
 ```
 
 `summary.json` includes final/best losses, seed, device, git SHA, and resolved data paths.
+For resumed runs it also records resume metadata (`resumed`, source checkpoint/config paths, and restored state flags).
 
 ## Comparison Outputs
 
@@ -111,20 +144,6 @@ runs/<run_id>/
 
 - `leaderboard.csv` (ranked by `best_val_loss`)
 - `val_loss_overlay.png`
-
-## Legacy Entrypoint
-
-The original trainer remains available:
-
-```bash
-python scripts/train_model.py --sat-paths <...> --epochs 300
-```
-
-It now also accepts:
-
-```bash
---tropopause-csv <path_to_tropopause_features_monthly.csv>
-```
 
 ## Quality Checks
 

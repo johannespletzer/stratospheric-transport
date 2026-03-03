@@ -6,7 +6,12 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from residence_time.workflow_data import discover_data_files, resolve_data_paths
+from residence_time.workflow_data import (
+    discover_data_files,
+    get_default_workflow_config,
+    load_workflow_config,
+    resolve_data_paths,
+)
 
 
 def _write_satellite_nc(path: Path) -> None:
@@ -233,3 +238,27 @@ def test_tropopause_csv_fallback_schema_detection(tmp_path: Path) -> None:
     resolved = resolve_data_paths(config, project_root=tmp_path)
     assert resolved.tropopause_csv == str(tropopause_csv.resolve())
     assert resolved.sources["tropopause_csv"] == "autodiscovered_schema"
+
+
+def test_default_workflow_config_includes_resume_defaults() -> None:
+    """Workflow defaults should include resume settings."""
+    cfg = get_default_workflow_config()
+    assert cfg["resume"]["enabled"] is False
+    assert cfg["resume"]["checkpoint_path"] is None
+    assert cfg["resume"]["source_config_path"] is None
+    assert cfg["resume"]["load_optimizer"] is True
+    assert cfg["resume"]["load_scaler"] is True
+
+
+def test_load_workflow_config_merges_resume_defaults(tmp_path: Path) -> None:
+    """Loaded configs should receive resume defaults when section is omitted."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("run:\n  run_id: sample\n", encoding="utf-8")
+
+    loaded = load_workflow_config(str(config_path))
+    assert loaded["run"]["run_id"] == "sample"
+    assert loaded["resume"]["enabled"] is False
+    assert loaded["resume"]["checkpoint_path"] is None
+    assert loaded["resume"]["source_config_path"] is None
+    assert loaded["resume"]["load_optimizer"] is True
+    assert loaded["resume"]["load_scaler"] is True

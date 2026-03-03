@@ -23,30 +23,21 @@ from residence_time.model import PINNModel
 from residence_time.train import (
     create_train_val_loaders,
     extract_phase_and_scale,
+    extract_phase_and_transform_with_scaler,
     train_model,
 )
-from residence_time.utils import save_checkpoint
+from residence_time.utils import load_checkpoint, save_checkpoint
 from residence_time.workflow_data import (
     PROJECT_ROOT,
     ResolvedDataPaths,
     load_workflow_config,
+    parse_time_range,
     resolve_data_paths,
 )
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
-def parse_time_range(
-    time_start: str | None,
-    time_end: str | None,
-) -> tuple[str, str] | None:
-    """Build optional time-range tuple from config values."""
-    if time_start is None and time_end is None:
-        return None
-    if time_start is None or time_end is None:
-        raise ValueError("Both data.time_start and data.time_end must be set together.")
-    return (time_start, time_end)
 
 
 def set_seed(seed: int) -> None:
@@ -66,6 +57,51 @@ def _resolve_path(path_str: str) -> Path:
     if not path.is_absolute():
         path = PROJECT_ROOT / path
     return path.resolve()
+
+
+def _resolve_resume_settings(config: dict[str, Any]) -> dict[str, Any]:
+    """Resolve and validate resume settings from merged config."""
+    resume_cfg = dict(config.get("resume", {}))
+    resume_cfg.setdefault("enabled", False)
+    resume_cfg.setdefault("checkpoint_path", None)
+    resume_cfg.setdefault("source_config_path", None)
+    resume_cfg.setdefault("load_optimizer", True)
+    resume_cfg.setdefault("load_scaler", True)
+
+    resume_cfg["enabled"] = bool(resume_cfg["enabled"])
+    resume_cfg["load_optimizer"] = bool(resume_cfg["load_optimizer"])
+    resume_cfg["load_scaler"] = bool(resume_cfg["load_scaler"])
+
+    checkpoint_path = resume_cfg.get("checkpoint_path")
+    if checkpoint_path is not None and str(checkpoint_path).strip():
+        resume_cfg["checkpoint_path"] = str(_resolve_path(str(checkpoint_path)))
+    else:
+        resume_cfg["checkpoint_path"] = None
+
+    source_config_path = resume_cfg.get("source_config_path")
+    if source_config_path is not None and str(source_config_path).strip():
+        resume_cfg["source_config_path"] = str(_resolve_path(str(source_config_path)))
+    else:
+        resume_cfg["source_config_path"] = None
+
+    if resume_cfg["enabled"]:
+        if resume_cfg["checkpoint_path"] is None:
+            raise ValueError("resume.enabled=true requires resume.checkpoint_path to be set.")
+        if not Path(resume_cfg["checkpoint_path"]).is_file():
+            raise FileNotFoundError(
+                f"Resume checkpoint file not found: {resume_cfg['checkpoint_path']}"
+            )
+
+    if (
+        resume_cfg["enabled"]
+        and resume_cfg["source_config_path"]
+        and not Path(resume_cfg["source_config_path"]).is_file()
+    ):
+        raise FileNotFoundError(
+            f"Resume source config file not found: {resume_cfg['source_config_path']}"
+        )
+
+    return resume_cfg
 
 
 def _get_git_sha() -> str | None:
@@ -142,12 +178,20 @@ def _apply_train_overrides(config: dict[str, Any], args: argparse.Namespace) -> 
         ("time_encoding", "use_cyclical", "use_cyclical", bool),
         ("time_encoding", "use_rbf_seasonal", "use_rbf_seasonal", bool),
         ("time_encoding", "use_rbf_absolute", "use_rbf_absolute", bool),
+        ("resume", "load_optimizer", "resume_load_optimizer", bool),
+        ("resume", "load_scaler", "resume_load_scaler", bool),
     ]
 
     for section, key, arg_name, caster in override_map:
         value = getattr(args, arg_name, None)
         if value is not None:
             config[section][key] = caster(value)
+
+    if args.resume_from is not None:
+        config["resume"]["checkpoint_path"] = str(args.resume_from)
+        config["resume"]["enabled"] = True
+    if args.resume_config is not None:
+        config["resume"]["source_config_path"] = str(args.resume_config)
 
 
 def _cli_data_overrides(args: argparse.Namespace) -> dict[str, Any]:
@@ -227,6 +271,12 @@ def _write_summary(
     physics_losses: list[float],
     supervised_losses: list[float],
     n_samples: int,
+    *,
+    resumed: bool,
+    resume_checkpoint_path: str | None,
+    resume_source_config_path: str | None,
+    resume_loaded_optimizer: bool,
+    resume_loaded_scaler: bool,
 ) -> Path:
     """Write run summary JSON."""
     best_val_idx = int(np.argmin(np.asarray(val_losses)))
@@ -256,6 +306,11 @@ def _write_summary(
         "best_train_loss": float(train_losses[int(np.argmin(np.asarray(train_losses)))]),
         "best_physics_loss": float(physics_losses[int(np.argmin(np.asarray(physics_losses)))]),
         "best_supervised_loss": float(supervised_losses[int(np.argmin(np.asarray(supervised_losses)))]),
+        "resumed": bool(resumed),
+        "resume_checkpoint_path": resume_checkpoint_path,
+        "resume_source_config_path": resume_source_config_path,
+        "resume_loaded_optimizer": bool(resume_loaded_optimizer),
+        "resume_loaded_scaler": bool(resume_loaded_scaler),
     }
 
     summary_path = run_dir / "summary.json"
@@ -268,6 +323,8 @@ def run_train(args: argparse.Namespace) -> None:
     """Execute workflow training command."""
     config = load_workflow_config(args.config)
     _apply_train_overrides(config, args)
+    resume_cfg = _resolve_resume_settings(config)
+    config["resume"] = resume_cfg
 
     resolved = resolve_data_paths(
         config["data"],
@@ -324,10 +381,47 @@ def run_train(args: argparse.Namespace) -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering/interpolation.")
 
-    x_scaled, scaler_x, seasonal_phase, time_std = extract_phase_and_scale(
-        X,
-        scaler=str(data_cfg.get("scaler", "StandardScaler")),
-    )
+    model = PINNModel(
+        input_dim=5,
+        hidden_dim=int(model_cfg["hidden_dim"]),
+        hidden_layers=int(model_cfg["hidden_layers"]),
+        include_D=not bool(model_cfg.get("disable_d_output", False)),
+        use_tropopause_features=bool(data_cfg.get("use_tropopause_features", False)),
+        time_encoding_config=time_cfg,
+    ).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=float(train_cfg.get("learning_rate", LEARNING_RATE)))
+
+    resume_loaded_optimizer = False
+    resume_loaded_scaler = False
+    scaler_from_checkpoint = None
+    if resume_cfg["enabled"]:
+        optimizer_for_load = optimizer if resume_cfg["load_optimizer"] else None
+        scaler_from_checkpoint = load_checkpoint(
+            model,
+            checkpoint_path=str(resume_cfg["checkpoint_path"]),
+            device=device,
+            optimizer=optimizer_for_load,
+            return_scaler=bool(resume_cfg["load_scaler"]),
+        )
+        resume_loaded_optimizer = bool(resume_cfg["load_optimizer"])
+
+        if resume_cfg["load_scaler"]:
+            if scaler_from_checkpoint is None:
+                raise ValueError(
+                    "Resume checkpoint does not contain a scaler, but resume.load_scaler=true."
+                )
+            x_scaled, seasonal_phase, time_std = extract_phase_and_transform_with_scaler(
+                X,
+                scaler_X=scaler_from_checkpoint,
+            )
+            scaler_x = scaler_from_checkpoint
+            resume_loaded_scaler = True
+
+    if not resume_loaded_scaler:
+        x_scaled, scaler_x, seasonal_phase, time_std = extract_phase_and_scale(
+            X,
+            scaler=str(data_cfg.get("scaler", "StandardScaler")),
+        )
 
     train_loader, val_loader = create_train_val_loaders(
         x_scaled,
@@ -340,16 +434,6 @@ def run_train(args: argparse.Namespace) -> None:
         time_encoding_config=time_cfg,
         seasonal_phase=seasonal_phase,
     )
-
-    model = PINNModel(
-        input_dim=5,
-        hidden_dim=int(model_cfg["hidden_dim"]),
-        hidden_layers=int(model_cfg["hidden_layers"]),
-        include_D=not bool(model_cfg.get("disable_d_output", False)),
-        use_tropopause_features=bool(data_cfg.get("use_tropopause_features", False)),
-        time_encoding_config=time_cfg,
-    ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=float(train_cfg.get("learning_rate", LEARNING_RATE)))
 
     train_losses, val_losses, physics_losses, supervised_losses = train_model(
         model=model,
@@ -382,6 +466,11 @@ def run_train(args: argparse.Namespace) -> None:
         physics_losses,
         supervised_losses,
         n_samples=len(x_scaled),
+        resumed=bool(resume_cfg["enabled"]),
+        resume_checkpoint_path=resume_cfg["checkpoint_path"],
+        resume_source_config_path=resume_cfg["source_config_path"],
+        resume_loaded_optimizer=resume_loaded_optimizer,
+        resume_loaded_scaler=resume_loaded_scaler,
     )
 
     print(f"Wrote: {history_path}")
@@ -543,6 +632,30 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--disable-d-output", dest="disable_d_output", action="store_true", default=None)
     train_parser.add_argument("--enable-d-output", dest="disable_d_output", action="store_false")
     train_parser.add_argument("--checkpoint-name", default=None)
+    train_parser.add_argument("--resume-from", dest="resume_from", default=None)
+    train_parser.add_argument("--resume-config", dest="resume_config", default=None)
+    train_parser.add_argument(
+        "--resume-load-optimizer",
+        dest="resume_load_optimizer",
+        action="store_true",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--no-resume-load-optimizer",
+        dest="resume_load_optimizer",
+        action="store_false",
+    )
+    train_parser.add_argument(
+        "--resume-load-scaler",
+        dest="resume_load_scaler",
+        action="store_true",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--no-resume-load-scaler",
+        dest="resume_load_scaler",
+        action="store_false",
+    )
 
     train_parser.add_argument("--use-tropopause-features", dest="use_tropopause_features", action="store_true", default=None)
     train_parser.add_argument("--no-use-tropopause-features", dest="use_tropopause_features", action="store_false")
