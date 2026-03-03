@@ -1,17 +1,13 @@
-import glob
-import json
 import os
 from datetime import datetime
 from typing import Optional, Union
 
-import joblib
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import xarray as xr
-from sklearn.base import BaseEstimator
 
 
 def datetime64_to_year_fraction(
@@ -108,64 +104,6 @@ def load_checkpoint(
 
     return None
 
-def load_latest_checkpoint(
-    model: nn.Module,
-    device: str = 'cuda',
-    optimizer: Optional[optim.Optimizer] = None,
-    checkpoint_dir: Optional[str] = None,
-    return_scaler: bool = False
-) -> Optional[object]:
-    """Load the latest checkpoint from the specified directory into the model and optionally the optimizer.
-
-    Parameters
-    ----------
-    model : nn.Module
-        PyTorch model to load state into.
-
-    device : str, default='cuda'
-        Device to load model onto ('cuda' or 'cpu').
-
-    optimizer : torch.optim.Optimizer, optional
-        Optimizer to load state into if checkpoint contains optimizer state.
-
-    checkpoint_dir : str, optional
-        Path to checkpoint directory. If None, uses 'models/checkpoints' in project root.
-
-    return_scaler : bool, default=False
-        If True, returns the scaler saved in the checkpoint (if present).
-
-    Returns
-    -------
-    Optional[object]
-        The scaler object if `return_scaler` is True and scaler is present in the checkpoint,
-        otherwise None.
-
-    """
-    if checkpoint_dir is None:
-        this_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
-        checkpoint_dir = os.path.join(project_root, "models", "checkpoints")
-
-    checkpoint_files = sorted(glob.glob(os.path.join(checkpoint_dir, "pinn_checkpoint_*.pth")))
-    if not checkpoint_files:
-        print("No checkpoint found in", checkpoint_dir)
-        return None
-
-    latest_checkpoint = checkpoint_files[-1]
-    checkpoint = torch.load(latest_checkpoint, map_location=torch.device(device), weights_only=False)
-    model.load_state_dict(checkpoint["model_state_dict"])
-
-    if optimizer and "optimizer_state_dict" in checkpoint:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-
-    print(f"Loaded checkpoint from {latest_checkpoint}")
-
-    if return_scaler:
-        return checkpoint.get("scaler", None)
-
-    return None
-
-
 def save_checkpoint(
     model: nn.Module,
     optimizer: optim.Optimizer,
@@ -224,99 +162,3 @@ def save_checkpoint(
     print(f"Saved checkpoint to {checkpoint_path}")
 
 
-def save_scaler(
-    scaler: BaseEstimator,
-    scaler_dir: str = "checkpoints",
-    prefix: str = "scaler"
-) -> str:
-    """Save a fitted scikit-learn scaler to disk with a timestamped filename.
-
-    Parameters
-    ----------
-    scaler : BaseEstimator
-        The fitted scaler (e.g., MinMaxScaler or StandardScaler).
-
-    scaler_dir : str, default="checkpoints"
-        Directory to save the scaler file.
-
-    prefix : str, default="scaler"
-        Prefix for the saved file name.
-
-    Returns
-    -------
-    str
-        Full path to the saved scaler file.
-
-    """
-    os.makedirs(scaler_dir, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    scaler_path = os.path.join(scaler_dir, f"{prefix}_{timestamp}.pkl")
-    joblib.dump(scaler, scaler_path)
-
-    return scaler_path
-
-
-def save_config(config: dict, checkpoint_dir: Optional[str] = None) -> str:
-    """Save a config dictionary with a timestamped filename and a latest pointer.
-
-    Parameters
-    ----------
-    config : dict
-        Configuration to save.
-    checkpoint_dir : str, optional
-        Directory to save to. Defaults to 'models/configs' in the project root.
-
-    Returns
-    -------
-    str : Full path to the saved config file.
-
-    """
-    if checkpoint_dir is None:
-        this_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
-        checkpoint_dir = os.path.join(project_root, "models", "configs")
-
-    os.makedirs(checkpoint_dir, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"time_config_{timestamp}.json"
-    path = os.path.join(checkpoint_dir, filename)
-
-    with open(path, "w") as f:
-        json.dump(config, f, indent=2)
-
-    print(f"Saved config to: {path}")
-    return path
-
-
-def load_config(checkpoint_dir: Optional[str] = None) -> Optional[dict]:
-    """Load the most recently saved time encoding config.
-
-    Parameters
-    ----------
-    checkpoint_dir : str, optional
-        Directory to load from. Defaults to 'models/configs' in the project root.
-
-    Returns
-    -------
-    dict or None
-
-    """
-    if checkpoint_dir is None:
-        this_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(this_dir, "../../"))
-        checkpoint_dir = os.path.join(project_root, "models", "configs")
-
-    pattern = os.path.join(checkpoint_dir, "time_config_*.json")
-    config_files = sorted(glob.glob(pattern))
-
-    if not config_files:
-        print(f"No config found in: {checkpoint_dir}")
-        return None
-
-    latest_config = config_files[-1]
-    with open(latest_config) as f:
-        config = json.load(f)
-
-    print(f"Loaded config from: {latest_config}")
-    return config

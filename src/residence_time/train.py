@@ -67,11 +67,6 @@ def make_loader(
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=pin_memory)
 
 
-def scale_variables(X_obs: np.ndarray, default: bool = True) -> Tuple[np.ndarray, ColumnTransformer]:
-    """Backward-compatible wrapper for column-wise feature scaling."""
-    scaler_name = 'StandardScaler' if default else 'MinMaxScaler'
-    return scale_variables_columnwise(X_obs, scaler=scaler_name)
-
 
 def add_cyclical_time_features(
     X: np.ndarray,

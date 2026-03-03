@@ -145,20 +145,6 @@ For resumed runs it also records resume metadata (`resumed`, source checkpoint/c
 - `leaderboard.csv` (ranked by `best_val_loss`)
 - `val_loss_overlay.png`
 
-## Legacy Entrypoint
-
-The original trainer remains available:
-
-```bash
-python scripts/train_model.py --sat-paths <...> --epochs 300
-```
-
-It now also accepts:
-
-```bash
---tropopause-csv <path_to_tropopause_features_monthly.csv>
-```
-
 ## Quality Checks
 
 ```bash

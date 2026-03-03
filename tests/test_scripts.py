@@ -199,13 +199,6 @@ def test_resample_monthly_mean_std_avoids_xarray_resample(monkeypatch: pytest.Mo
     assert ds_monthly.sizes["lat"] == 2
 
 
-def test_train_model_rejects_disable_d_output_in_diffusivity_mode() -> None:
-    """CLI must fail fast when D output is disabled in diffusivity mode."""
-    result = run_script_raw("scripts/train_model.py", ["--disable-d-output"])
-    output = f"{result.stdout}\n{result.stderr}"
-    assert result.returncode != 0
-    assert "--disable-d-output is incompatible" in output
-
 
 def test_download_and_process_era5_passes_strict_file_allow_list(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

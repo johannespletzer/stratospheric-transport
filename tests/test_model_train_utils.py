@@ -9,7 +9,6 @@ from residence_time.train import (
     apply_time_encoding,
     create_train_val_loaders,
     extract_phase_and_transform_with_scaler,
-    scale_variables,
     scale_variables_columnwise,
     train_model,
 )
@@ -58,7 +57,7 @@ def test_train_val_loader_shapes() -> None:
 def test_scale_variables_shape() -> None:
     """Verify that scaled output has correct shape and type."""
     X = np.random.rand(100, 5)
-    X_scaled, scaler = scale_variables(X)
+    X_scaled, scaler = scale_variables_columnwise(X)
     assert X_scaled.shape == X.shape
     assert hasattr(scaler, "transform")
 

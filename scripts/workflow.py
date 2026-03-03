@@ -31,23 +31,13 @@ from residence_time.workflow_data import (
     PROJECT_ROOT,
     ResolvedDataPaths,
     load_workflow_config,
+    parse_time_range,
     resolve_data_paths,
 )
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
-def parse_time_range(
-    time_start: str | None,
-    time_end: str | None,
-) -> tuple[str, str] | None:
-    """Build optional time-range tuple from config values."""
-    if time_start is None and time_end is None:
-        return None
-    if time_start is None or time_end is None:
-        raise ValueError("Both data.time_start and data.time_end must be set together.")
-    return (time_start, time_end)
 
 
 def set_seed(seed: int) -> None:
