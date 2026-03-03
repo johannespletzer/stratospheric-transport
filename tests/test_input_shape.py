@@ -18,7 +18,7 @@ def test_pinnmodel_base_input() -> None:
 def test_pinnmodel_with_tropopause() -> None:
     """Test with base + tropopause features (no time)."""
     model = PINNModel(input_dim=BASE_INPUT_DIM, use_tropopause_features=True, time_encoding_config={"enabled": False})
-    x = torch.randn(10, BASE_INPUT_DIM + 3)
+    x = torch.randn(10, BASE_INPUT_DIM + 4)  # 3 tropopause features + 1 indicator
     tau_R, D = model(x)
     assert tau_R.shape == (10, 1)
     if model.include_D:
@@ -64,7 +64,7 @@ def test_pinnmodel_with_all_time_features_and_tropopause() -> None:
     }
     model = PINNModel(input_dim=BASE_INPUT_DIM, use_tropopause_features=True, time_encoding_config=time_cfg)
 
-    extra = 3 + 2 + 12 + 8  # tropopause + cyclical + seasonal RBF + absolute RBF
+    extra = 4 + 2 + 12 + 8  # tropopause (3 + indicator) + cyclical + seasonal RBF + absolute RBF
     x = torch.randn(10, BASE_INPUT_DIM + extra)
     tau_R, D = model(x)
     assert tau_R.shape == (10, 1)

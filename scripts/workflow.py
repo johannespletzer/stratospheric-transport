@@ -22,7 +22,7 @@ from residence_time.data import load_all_data_combined, load_tau_R
 from residence_time.model import PINNModel
 from residence_time.train import (
     create_train_val_loaders,
-    scale_variables_columnwise,
+    extract_phase_and_scale,
     train_model,
 )
 from residence_time.utils import save_checkpoint
@@ -324,10 +324,11 @@ def run_train(args: argparse.Namespace) -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering/interpolation.")
 
-    x_scaled, scaler_x = scale_variables_columnwise(
+    x_scaled, scaler_x, seasonal_phase, time_std = extract_phase_and_scale(
         X,
         scaler=str(data_cfg.get("scaler", "StandardScaler")),
     )
+
     train_loader, val_loader = create_train_val_loaders(
         x_scaled,
         gamma,
@@ -337,6 +338,7 @@ def run_train(args: argparse.Namespace) -> None:
         val_split=float(train_cfg["val_split"]),
         device=device,
         time_encoding_config=time_cfg,
+        seasonal_phase=seasonal_phase,
     )
 
     model = PINNModel(
@@ -358,6 +360,7 @@ def run_train(args: argparse.Namespace) -> None:
         lambda_phys_start=float(train_cfg["lambda_phys_start"]),
         lambda_sup_start=float(train_cfg["lambda_sup_start"]),
         decay_rate=float(train_cfg["decay_rate"]),
+        time_std=time_std,
     )
 
     checkpoint_name = str(model_cfg.get("checkpoint_name", "model_checkpoint.pth"))

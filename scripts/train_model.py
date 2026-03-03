@@ -15,7 +15,7 @@ from residence_time.data import load_all_data_combined, load_tau_R
 from residence_time.model import PINNModel
 from residence_time.train import (
     create_train_val_loaders,
-    scale_variables_columnwise,
+    extract_phase_and_scale,
     train_model,
 )
 from residence_time.utils import save_checkpoint, save_config
@@ -160,7 +160,7 @@ def main() -> None:
     if len(X) == 0:
         raise ValueError("No training samples remain after filtering. Check data paths and tau interpolation coverage.")
 
-    X_scaled, scaler_X = scale_variables_columnwise(X, scaler=args.scaler)
+    X_scaled, scaler_X, seasonal_phase, time_std = extract_phase_and_scale(X, scaler=args.scaler)
 
     train_loader, val_loader = create_train_val_loaders(
         X_scaled,
@@ -171,6 +171,7 @@ def main() -> None:
         val_split=args.val_split,
         device=device,
         time_encoding_config=time_config,
+        seasonal_phase=seasonal_phase,
     )
 
     model = PINNModel(
@@ -193,6 +194,7 @@ def main() -> None:
         lambda_phys_start=args.lambda_phys_start,
         lambda_sup_start=args.lambda_sup_start,
         decay_rate=args.decay_rate,
+        time_std=time_std,
     )
 
     save_checkpoint(model, optimizer, name=args.checkpoint_name, scaler=scaler_X)

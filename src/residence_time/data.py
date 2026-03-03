@@ -288,7 +288,13 @@ def extend_with_tropopause_features(
     X: np.ndarray,
     csv_path: Optional[str] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Extend a [N, 5] array with tropopause features and compute weights.
+    """Extend a [N, 5] array with tropopause features, an indicator, and weights.
+
+    Satellite rows (source_id == 0) receive real tropopause values looked up
+    by nearest time. Non-satellite rows receive the global mean of the
+    tropopause lookup table as imputation so that after StandardScaler the
+    imputed values map to approximately zero. A binary indicator column
+    (1 = real, 0 = imputed) lets the network distinguish the two cases.
 
     Parameters
     ----------
@@ -301,8 +307,8 @@ def extend_with_tropopause_features(
     Returns
     -------
     X_ext : np.ndarray
-        Extended array [N, 8] with 3 new columns:
-        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol].
+        Extended array [N, 9] with 4 new columns:
+        [tp_WMO_tro, tp_WMO_sh_pol, tp_WMO_nh_pol, tropopause_present].
 
     W : np.ndarray
         Weight vector based on inverse variance of tropopause features.
@@ -334,9 +340,16 @@ def extend_with_tropopause_features(
     times = X[:, 2]
     sources = X[:, 3]
 
-    X_ext = np.zeros((X.shape[0], 8))
+    # Global mean of tropopause values for imputing non-satellite rows.
+    global_tp_mean = tp_values.mean(axis=0)
+
+    X_ext = np.zeros((X.shape[0], 9))
     W = np.ones(X.shape[0])
     X_ext[:, :5] = X
+
+    # Default: mean-imputed tropopause values and indicator = 0.
+    X_ext[:, 5:8] = global_tp_mean
+    # X_ext[:, 8] already 0.0 (tropopause_present indicator)
 
     sat_mask = sources == 0
     if np.any(sat_mask):
@@ -349,7 +362,8 @@ def extend_with_tropopause_features(
         use_right = np.abs(tp_times[right_idx] - sat_times) < np.abs(sat_times - tp_times[left_idx])
         nearest_idx = np.where(use_right, right_idx, left_idx)
 
-        X_ext[sat_mask, 5:] = tp_values[nearest_idx]
+        X_ext[sat_mask, 5:8] = tp_values[nearest_idx]
+        X_ext[sat_mask, 8] = 1.0  # indicator: real tropopause data
         sat_stds = tp_stds[nearest_idx]
         W[sat_mask] = 1.0 / (np.sum(sat_stds**2, axis=1) + 1e-8)
 

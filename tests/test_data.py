@@ -112,7 +112,7 @@ def test_load_all_data_combined_applies_tropopause_weighting(monkeypatch: pytest
 
     def fake_extend_with_tropopause_features(X: np.ndarray, csv_path: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray]:
         _ = csv_path
-        X_ext = np.hstack([X, np.ones((X.shape[0], 3))])
+        X_ext = np.hstack([X, np.ones((X.shape[0], 4))])
         return X_ext, W_trop_mock
 
     monkeypatch.setattr(data_module, "load_satellite_dataset", fake_load_satellite_dataset)
@@ -123,7 +123,7 @@ def test_load_all_data_combined_applies_tropopause_weighting(monkeypatch: pytest
         trop_features=True
     )
 
-    assert X_out.shape == (2, 8)
+    assert X_out.shape == (2, 9)
     np.testing.assert_allclose(Gamma_out, Gamma_mock)
     np.testing.assert_allclose(W_out, W_mock * W_trop_mock)
 
@@ -190,13 +190,19 @@ def test_extend_with_tropopause_features_matches_reference_lookup(
     tp_values = df_ref.set_index("year_frac")[features]
     tp_stds = df_ref.set_index("year_frac")[stds]
 
-    expected_X = np.zeros((X.shape[0], 8))
+    global_tp_mean = tp_values.values.mean(axis=0)
+
+    expected_X = np.zeros((X.shape[0], 9))
     expected_W = np.ones(X.shape[0])
     expected_X[:, :5] = X
+    # Default: mean-imputed tropopause features, indicator=0
+    expected_X[:, 5:8] = global_tp_mean
+    expected_X[:, 8] = 0.0
     for i, (t, sid) in enumerate(zip(X[:, 2], X[:, 3])):
         if sid == 0:
             nearest_time = tp_values.index[np.abs(tp_values.index - t).argmin()]
-            expected_X[i, 5:] = tp_values.loc[nearest_time].values
+            expected_X[i, 5:8] = tp_values.loc[nearest_time].values
+            expected_X[i, 8] = 1.0  # indicator: satellite with real tropopause data
             std_vals = tp_stds.loc[nearest_time].values
             expected_W[i] = 1.0 / (np.sum(std_vals**2) + 1e-8)
 

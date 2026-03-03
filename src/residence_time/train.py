@@ -201,6 +201,51 @@ def apply_time_encoding(
     return X_out
 
 
+def _center_source(x: np.ndarray) -> np.ndarray:
+    """Map source IDs {0, 1, 2} to centered values {-1, 0, 1}."""
+    return x - 1
+
+
+def _uncenter_source(x: np.ndarray) -> np.ndarray:
+    """Inverse of _center_source: map {-1, 0, 1} back to {0, 1, 2}."""
+    return x + 1
+
+
+def extract_phase_and_scale(
+    X: np.ndarray,
+    scaler: str = 'StandardScaler',
+) -> Tuple[np.ndarray, 'ColumnTransformer', np.ndarray, float]:
+    """Extract seasonal phase, floor time, scale features, and return time_std.
+
+    This consolidates the pre-scaling steps shared by training entry points:
+    1. Extract fractional-year phase from the time column.
+    2. Replace the time column with integer years.
+    3. Scale all columns via ``scale_variables_columnwise``.
+    4. Read out the time standard deviation for harmonic chain-rule correction.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Feature array [N, D] whose column 2 contains fractional-year time.
+        **Modified in-place** (time column replaced with floored years).
+    scaler : str
+        Scaler name forwarded to ``scale_variables_columnwise``.
+
+    Returns
+    -------
+    X_scaled : np.ndarray
+    scaler_X : ColumnTransformer
+    seasonal_phase : np.ndarray
+    time_std : float
+
+    """
+    seasonal_phase = np.mod(X[:, 2], 1.0)
+    X[:, 2] = np.floor(X[:, 2])
+    X_scaled, scaler_X = scale_variables_columnwise(X, scaler=scaler)
+    time_std = float(scaler_X.named_transformers_["time"].scale_[0])
+    return X_scaled, scaler_X, seasonal_phase, time_std
+
+
 def scale_variables_columnwise(
     X_obs: np.ndarray,
     scaler: str = 'StandardScaler'
@@ -208,6 +253,11 @@ def scale_variables_columnwise(
     """Scale selected columns of X_obs using StandardScaler or MinMaxScaler.
 
     Column order: [0] Latitude, [1] Altitude, [2] Time, [3] Source ID, [4] Gamma_EI
+
+    Time is standardized alongside lat/alt/gamma. Source ID is centered to
+    {-1, 0, 1} via a deterministic shift. Callers should extract the seasonal
+    phase from fractional years and replace the time column with integer years
+    **before** calling this function.
 
     Returns
     -------
@@ -222,14 +272,11 @@ def scale_variables_columnwise(
 
     scaler_cls = StandardScaler if scaler == 'StandardScaler' else MinMaxScaler
 
-    # Time is kept in absolute year units in all modes.
-    time_transf = FunctionTransformer(validate=False)
-
     transformers = [
         ("lat",     scaler_cls(), [0]),
         ("alt",     scaler_cls(), [1]),
-        ("time",    time_transf, [2]),
-        ("source",  FunctionTransformer(validate=False), [3]),  # unscaled
+        ("time",    scaler_cls(), [2]),
+        ("source",  FunctionTransformer(func=_center_source, inverse_func=_uncenter_source, validate=False), [3]),
         ("gamma",   scaler_cls(), [4]),
     ]
     if X_obs.shape[1] > 5:
@@ -252,18 +299,21 @@ def create_train_val_loaders(
     batch_size: int = 256,
     val_split: float = 0.2,
     device: str = 'cuda',
-    time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG
+    time_encoding_config: dict = DEFAULT_TIME_ENCODING_CONFIG,
+    seasonal_phase: Optional[np.ndarray] = None,
 ) -> Tuple[DataLoader, DataLoader]:
     """Split data into training and validation sets and return DataLoaders.
 
-    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples 
-    for use in training a PINN model. If no tau_R targets are provided, the 
+    This function constructs PyTorch DataLoaders with (X, Gamma, W, tau_R) tuples
+    for use in training a PINN model. If no tau_R targets are provided, the
     function fills them with NaNs for compatibility.
 
     Parameters
     ----------
     X : np.ndarray
         Input features of shape [N, D] (e.g., lat, alt, time, source, Gamma_EI).
+        When the time column has already been scaled, pass ``seasonal_phase``
+        explicitly so that time encoding uses the correct fractional-year phase.
 
     Gamma : np.ndarray
         Effective irreversibility (Γ_EI) values, shape [N,].
@@ -284,8 +334,14 @@ def create_train_val_loaders(
     device : str, default='cuda'
         Target compute device used to configure DataLoader memory pinning.
 
-    time_encoding_config : bool, default=DEFAULT_TIME_ENCODING_CONFIG
-        Option to add features for seasonal and long-term trends
+    time_encoding_config : dict, default=DEFAULT_TIME_ENCODING_CONFIG
+        Option to add features for seasonal and long-term trends.
+
+    seasonal_phase : np.ndarray or None, optional
+        Pre-extracted fractional-year phase, shape [N,]. When provided the
+        function skips the internal year/phase split (which requires unscaled
+        time values). Callers that scale the time column before calling this
+        function **must** provide this array.
 
     Returns
     -------
@@ -299,12 +355,22 @@ def create_train_val_loaders(
     time_encoding_config = dict(ChainMap(time_encoding_config, DEFAULT_TIME_ENCODING_CONFIG))
     t_col = time_encoding_config["time_col"]
 
-    # Split absolute year and seasonal phase: year goes to base time feature, phase is encoded separately.
     X_pre = X.copy()
-    time_raw = X_pre[:, t_col].astype(float)
-    time_year = np.floor(time_raw)
-    seasonal_phase = np.mod(time_raw - time_year, 1.0)
-    X_pre[:, t_col] = time_year
+
+    if seasonal_phase is not None:
+        # Caller already extracted the phase and replaced time with integer
+        # years before scaling. Use the provided phase directly.
+        seasonal_phase_arr = np.asarray(seasonal_phase)
+    else:
+        # Fallback: extract from X (only valid when the time column is unscaled).
+        time_raw = X_pre[:, t_col].astype(float)
+        time_year = np.floor(time_raw)
+        seasonal_phase_arr = np.mod(time_raw - time_year, 1.0)
+        X_pre[:, t_col] = time_year
+
+    # Stratify train/val split by source ID so every source type is
+    # represented proportionally in both sets.
+    source_ids = np.round(X_pre[:, 3]).astype(int)
 
     if tau_R is not None:
         (
@@ -319,7 +385,8 @@ def create_train_val_loaders(
             phase_train,
             phase_val
         ) = train_test_split(
-            X_pre, Gamma, W, tau_R, seasonal_phase, test_size=val_split, random_state=42
+            X_pre, Gamma, W, tau_R, seasonal_phase_arr,
+            test_size=val_split, random_state=42, stratify=source_ids,
         )
     else:
         (
@@ -332,7 +399,8 @@ def create_train_val_loaders(
             phase_train,
             phase_val
         ) = train_test_split(
-            X_pre, Gamma, W, seasonal_phase, test_size=val_split, random_state=42
+            X_pre, Gamma, W, seasonal_phase_arr,
+            test_size=val_split, random_state=42, stratify=source_ids,
         )
         tau_train = np.full(len(X_train), np.nan, dtype=np.float32)
         tau_val = np.full(len(X_val), np.nan, dtype=np.float32)
@@ -374,8 +442,30 @@ def _compute_batch_losses(
     Tb: torch.Tensor,
     *,
     harmonic_second_derivative_graph: bool,
+    time_std: float = 1.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Compute physics and supervised losses for one batch."""
+    """Compute physics and supervised losses for one batch.
+
+    Parameters
+    ----------
+    model : Module
+        PINN model returning (tau_R, D) predictions.
+    Xb : torch.Tensor
+        Input batch [B, D].
+    Gb : torch.Tensor
+        Mean age of air (Gamma) batch.
+    Wb : torch.Tensor
+        Sample weights batch.
+    Tb : torch.Tensor
+        Supervised tau_R targets (may contain NaN for unsupervised rows).
+    harmonic_second_derivative_graph : bool
+        Whether to retain the computation graph through the second derivative.
+    time_std : float, default=1.0
+        Standard deviation used to scale the time column. In harmonic mode,
+        autograd computes d²τ/d(t_scaled)²; the physical second derivative is
+        obtained by dividing by time_std². Set to 1.0 when time is unscaled.
+
+    """
     if PHYSICS_CONSTRAINT == "diffusivity":
         Gamma = Gb.clamp(min=1e-2)
         tau_R_pred, D_pred = model(Xb)
@@ -407,7 +497,11 @@ def _compute_batch_losses(
             create_graph=harmonic_second_derivative_graph
         )[0]
 
-        residual = d2tau_dt2 + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
+        # Chain-rule correction: autograd gives d²τ/d(t_scaled)², physical
+        # second derivative is d²τ/dt² = d²τ/d(t_scaled)² / std_t².
+        d2tau_dt2_physical = d2tau_dt2 / (time_std ** 2)
+
+        residual = d2tau_dt2_physical + (OMEGA ** 2) * (tau_R_pred - model.tauR_intercept)
         loss_phys = torch.mean(Wb * residual**2)
 
     else:
@@ -425,7 +519,8 @@ def train_model(
     n_epochs: int = 300,
     lambda_phys_start: float = 1.0,
     lambda_sup_start: float = 1.0,
-    decay_rate: float = 0.95
+    decay_rate: float = 0.95,
+    time_std: float = 1.0,
 ) -> Tuple[List[float], List[float], List[float], List[float]]:
     """Train a PINN model using both physics-based and supervised losses.
 
@@ -454,6 +549,10 @@ def train_model(
 
     decay_rate : float
         Exponential decay rate for lambda_phys over epochs.
+
+    time_std : float, default=1.0
+        Standard deviation used to scale the time column. Passed through to
+        the harmonic physics loss for chain-rule derivative correction.
 
     Returns
     -------
@@ -496,6 +595,7 @@ def train_model(
                 Wb,
                 Tb,
                 harmonic_second_derivative_graph=True,
+                time_std=time_std,
             )
 
             loss = lambda_phys * loss_phys + lambda_sup * loss_sup
@@ -534,6 +634,7 @@ def train_model(
                         Wb,
                         Tb,
                         harmonic_second_derivative_graph=False,
+                        time_std=time_std,
                     )
                     loss = lambda_phys * loss_phys + lambda_sup * loss_sup
                     val_loss += loss.item()
@@ -550,6 +651,7 @@ def train_model(
                     Wb,
                     Tb,
                     harmonic_second_derivative_graph=False,
+                    time_std=time_std,
                 )
                 loss = lambda_phys * loss_phys + lambda_sup * loss_sup
                 val_loss += loss.item()
