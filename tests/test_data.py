@@ -10,10 +10,11 @@ import pandas as pd
 import pytest
 import requests
 import xarray as xr
+from aerocalc3 import std_atm
 
 import residence_time.data as data_module
 from residence_time.config import INSITU_REFERENCE_YEAR
-from residence_time.data import load_insitu_dataset, load_satellite_dataset
+from residence_time.data import load_insitu_dataset, load_satellite_dataset, load_tau_R
 
 ZENODO_URL = "https://zenodo.org/records/13906743/files/Age_Data_v2.zip?download=1"
 
@@ -208,3 +209,44 @@ def test_extend_with_tropopause_features_matches_reference_lookup(
 
     np.testing.assert_allclose(X_ext, expected_X)
     np.testing.assert_allclose(W, expected_W)
+
+
+def test_load_tau_r_uses_residence_time_default_and_handles_axis_order(tmp_path: Path) -> None:
+    """Tau loader should accept EMAC-style naming and descending latitude axes."""
+    lev_hpa = np.array([1.0, 10.0, 100.0], dtype=float)
+    lat_desc = np.array([60.0, 0.0, -60.0], dtype=float)
+    tau_grid = np.array(
+        [
+            [1.0, 2.0, 3.0],
+            [4.0, 5.0, 6.0],
+            [7.0, 8.0, 9.0],
+        ],
+        dtype=float,
+    )
+
+    ds = xr.Dataset(
+        {"Residence time [yrs]": (("lev", "lat"), tau_grid)},
+        coords={"lev": lev_hpa, "lat": lat_desc},
+    )
+    ds["lev"].attrs["units"] = "hPa"
+    ds["lev"].attrs["standard_name"] = "air_pressure"
+
+    tau_path = tmp_path / "tau_emac.nc"
+    ds.to_netcdf(tau_path)
+
+    alt_km = np.array(
+        [std_atm.press2alt(p, press_units="hpa", alt_units="km") for p in lev_hpa],
+        dtype=float,
+    )
+    obs_rows = []
+    expected = []
+    for i, alt in enumerate(alt_km):
+        for j, lat in enumerate(lat_desc):
+            obs_rows.append([lat, alt, 2000.0, 0.0, 0.0])
+            expected.append(tau_grid[i, j])
+    X_obs = np.asarray(obs_rows, dtype=float)
+
+    tau_interp, mask_valid = load_tau_R(str(tau_path), X_obs)
+
+    assert np.all(mask_valid)
+    np.testing.assert_allclose(tau_interp, np.asarray(expected, dtype=float))

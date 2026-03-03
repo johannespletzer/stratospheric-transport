@@ -11,6 +11,21 @@ from residence_time.config import INSITU_REFERENCE_YEAR, USE_TROPOPAUSE_FEATURES
 from residence_time.utils import datetime64_to_year_fraction
 
 
+def _forward_fill_nan_along_axis(values: np.ndarray, axis: int) -> np.ndarray:
+    """Forward-fill NaNs along one axis without optional xarray dependencies."""
+    arr = np.asarray(values, dtype=float)
+    if not np.isnan(arr).any():
+        return arr
+
+    moved = np.moveaxis(arr, axis, -1)
+    out = moved.copy()
+    valid = ~np.isnan(out)
+    idx = np.where(valid, np.arange(out.shape[-1]), 0)
+    np.maximum.accumulate(idx, axis=-1, out=idx)
+    out = np.take_along_axis(out, idx, axis=-1)
+    return np.moveaxis(out, -1, axis)
+
+
 def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load balloon/aircraft (in-situ) age-of-air observations from NetCDF.
 
@@ -271,10 +286,60 @@ def load_tau_R(filename: str, X_obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray
         Boolean mask where interpolation was successful.
 
     """
-    ds = xr.open_dataset(filename).ffill('lat')
+    with xr.open_dataset(filename) as ds:
+        if "Residence time [yrs]" in ds.data_vars:
+            tau_da = ds["Residence time [yrs]"]
+        elif "tau" in ds.data_vars:
+            tau_da = ds["tau"]
+        else:
+            candidates = [
+                var for var in ds.data_vars.values()
+                if {"lev", "lat"}.issubset(set(var.dims))
+            ]
+            if not candidates:
+                raise KeyError(
+                    "No tau-like variable found. Expected 'Residence time [yrs]' or "
+                    f"'tau', available: {list(ds.data_vars)}"
+                )
+            tau_da = candidates[0]
+
+        tau_da = tau_da.transpose("lev", "lat")
+        lev = np.asarray(tau_da["lev"].values, dtype=float)
+        lat = np.asarray(tau_da["lat"].values, dtype=float)
+        tau_vals = _forward_fill_nan_along_axis(np.asarray(tau_da.values, dtype=float), axis=1)
+
+        lev_units = str(tau_da["lev"].attrs.get("units", "")).strip().lower()
+        lev_standard_name = str(tau_da["lev"].attrs.get("standard_name", "")).strip().lower()
+        pressure_like_units = {"pa", "hpa", "mbar", "mb", "kpa", "bar"}
+        is_pressure_axis = lev_standard_name == "air_pressure" or lev_units in pressure_like_units
+        if is_pressure_axis:
+            if lev_units == "pa":
+                lev_hpa = lev / 100.0
+            elif lev_units in {"kpa"}:
+                lev_hpa = lev * 10.0
+            elif lev_units in {"bar"}:
+                lev_hpa = lev * 1000.0
+            else:
+                lev_hpa = lev
+            lev = np.array(
+                [std_atm.press2alt(p, press_units="hpa", alt_units="km") for p in lev_hpa],
+                dtype=float,
+            )
+
+        lev_order = np.argsort(lev)
+        lat_order = np.argsort(lat)
+        lev = lev[lev_order]
+        lat = lat[lat_order]
+        tau_vals = tau_vals[np.ix_(lev_order, lat_order)]
+
+    if np.any(np.diff(lev) <= 0):
+        raise ValueError("lev coordinate must be strictly ascending after preprocessing.")
+    if np.any(np.diff(lat) <= 0):
+        raise ValueError("lat coordinate must be strictly ascending after preprocessing.")
+
     interp = RegularGridInterpolator(
-        (ds['lev'].values, ds['lat'].values),
-        ds['tau'].values,
+        (lev, lat),
+        tau_vals,
         bounds_error=False,
         fill_value=np.nan
     )
