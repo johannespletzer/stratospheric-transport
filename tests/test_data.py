@@ -13,7 +13,7 @@ import xarray as xr
 
 import residence_time.data as data_module
 from residence_time.config import INSITU_REFERENCE_YEAR
-from residence_time.data import load_insitu_dataset, load_satellite_dataset
+from residence_time.data import load_insitu_dataset, load_satellite_dataset, load_tau_R
 
 ZENODO_URL = "https://zenodo.org/records/13906743/files/Age_Data_v2.zip?download=1"
 
@@ -208,3 +208,61 @@ def test_extend_with_tropopause_features_matches_reference_lookup(
 
     np.testing.assert_allclose(X_ext, expected_X)
     np.testing.assert_allclose(W, expected_W)
+
+
+def test_load_tau_R_accepts_tau_alias_name(tmp_path: Path) -> None:
+    """Tau interpolation should accept common tau variable aliases."""
+    tau_values = np.array([[1.0, 2.0], [3.0, 4.0]])
+    ds = xr.Dataset(
+        {"residence_time": (("lev", "lat"), tau_values)},
+        coords={"lev": [18.0, 22.0], "lat": [-10.0, 10.0]},
+    )
+    tau_path = tmp_path / "tau_alias.nc"
+    ds.to_netcdf(tau_path)
+
+    X_obs = np.array(
+        [
+            [-10.0, 18.0, 2000.0, 0.0, 2.0],
+            [10.0, 22.0, 2000.0, 0.0, 2.0],
+        ]
+    )
+    tau_interp, valid_mask = load_tau_R(str(tau_path), X_obs)
+
+    np.testing.assert_allclose(tau_interp, np.array([1.0, 4.0]))
+    np.testing.assert_array_equal(valid_mask, np.array([True, True]))
+
+
+def test_load_tau_R_handles_lat_lev_variable_order(tmp_path: Path) -> None:
+    """Tau interpolation should work when the tau array is stored as (lat, lev)."""
+    tau_values = np.array([[1.0, 3.0], [2.0, 4.0]])
+    ds = xr.Dataset(
+        {"tau": (("lat", "lev"), tau_values)},
+        coords={"lev": [18.0, 22.0], "lat": [-10.0, 10.0]},
+    )
+    tau_path = tmp_path / "tau_lat_lev.nc"
+    ds.to_netcdf(tau_path)
+
+    X_obs = np.array(
+        [
+            [-10.0, 22.0, 2000.0, 0.0, 2.0],
+            [10.0, 18.0, 2000.0, 0.0, 2.0],
+        ]
+    )
+    tau_interp, valid_mask = load_tau_R(str(tau_path), X_obs)
+
+    np.testing.assert_allclose(tau_interp, np.array([3.0, 2.0]))
+    np.testing.assert_array_equal(valid_mask, np.array([True, True]))
+
+
+def test_load_tau_R_raises_when_no_lev_lat_variable_exists(tmp_path: Path) -> None:
+    """Tau interpolation should fail with a clear error for incompatible schemas."""
+    ds = xr.Dataset(
+        {"not_tau": (("time", "lat"), np.array([[1.0, 2.0]]))},
+        coords={"time": [0], "lat": [-10.0, 10.0], "lev": [18.0, 22.0]},
+    )
+    tau_path = tmp_path / "tau_invalid.nc"
+    ds.to_netcdf(tau_path)
+
+    X_obs = np.array([[-10.0, 18.0, 2000.0, 0.0, 2.0]])
+    with pytest.raises(KeyError, match="Could not find a tau-like variable"):
+        load_tau_R(str(tau_path), X_obs)

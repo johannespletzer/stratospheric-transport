@@ -271,13 +271,63 @@ def load_tau_R(filename: str, X_obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray
         Boolean mask where interpolation was successful.
 
     """
-    ds = xr.open_dataset(filename).ffill('lat')
-    interp = RegularGridInterpolator(
-        (ds['lev'].values, ds['lat'].values),
-        ds['tau'].values,
-        bounds_error=False,
-        fill_value=np.nan
-    )
+    def _coerce_to_lev_lat(var: xr.DataArray) -> Optional[xr.DataArray]:
+        if not {"lev", "lat"}.issubset(set(var.dims)):
+            return None
+
+        extra_dims = [dim for dim in var.dims if dim not in {"lev", "lat"}]
+        for dim in extra_dims:
+            if var.sizes.get(dim, 0) != 1:
+                return None
+
+        if extra_dims:
+            var = var.isel({dim: 0 for dim in extra_dims})
+
+        return var.transpose("lev", "lat")
+
+    def _resolve_tau_variable(ds: xr.Dataset) -> xr.DataArray:
+        preferred_names = (
+            "tau",
+            "tau_R",
+            "t_R",
+            "residence_time",
+            "residence_time_mean",
+        )
+
+        for name in preferred_names:
+            if name not in ds.data_vars:
+                continue
+            candidate = _coerce_to_lev_lat(ds[name])
+            if candidate is not None:
+                return candidate
+
+        for _, var in ds.data_vars.items():
+            candidate = _coerce_to_lev_lat(var)
+            if candidate is not None:
+                return candidate
+
+        available = ", ".join(str(name) for name in ds.data_vars) or "<none>"
+        raise KeyError(
+            f"Could not find a tau-like variable in {filename}. "
+            f"Expected a data variable with lev/lat dimensions; found: {available}"
+        )
+
+    with xr.open_dataset(filename) as ds:
+        if "lat" in ds.dims:
+            try:
+                ds = ds.ffill("lat")
+            except (ModuleNotFoundError, ImportError, RuntimeError):
+                # xarray forward-fill can depend on optional bottleneck/numbagg.
+                pass
+
+        tau_var = _resolve_tau_variable(ds)
+        interp = RegularGridInterpolator(
+            (ds["lev"].values, ds["lat"].values),
+            tau_var.values,
+            bounds_error=False,
+            fill_value=np.nan,
+        )
+
     coords = np.stack([X_obs[:, 1], X_obs[:, 0]], axis=1)
     tau_R_interp = interp(coords)
     mask_valid = ~np.isnan(tau_R_interp)
