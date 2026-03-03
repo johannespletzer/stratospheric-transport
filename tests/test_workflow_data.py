@@ -69,6 +69,16 @@ def _write_tau_nc(path: Path) -> None:
     ds.to_netcdf(path)
 
 
+def _write_residence_time_tau_nc(path: Path) -> None:
+    ds = xr.Dataset(
+        {
+            "Residence time [yrs]": (("lev", "lat"), np.full((2, 2), 1.2)),
+        },
+        coords={"lev": [18.0, 22.0], "lat": [-10.0, 10.0]},
+    )
+    ds.to_netcdf(path)
+
+
 def _base_config() -> Dict[str, object]:
     return {
         "sat_paths": [],
@@ -117,6 +127,18 @@ def test_discovery_skips_incomplete_insitu_schema(tmp_path: Path) -> None:
 
     discovered = discover_data_files(search_roots=["data"], project_root=tmp_path)
     assert str(insitu_path.resolve()) not in discovered["insitu_paths"]
+
+
+def test_discovery_classifies_residence_time_tau_schema(tmp_path: Path) -> None:
+    """Discovery should classify EMAC-style residence-time tau files."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+
+    tau_path = data_dir / "residence_time.nc"
+    _write_residence_time_tau_nc(tau_path)
+
+    discovered = discover_data_files(search_roots=["data"], project_root=tmp_path)
+    assert str(tau_path.resolve()) in discovered["tau_paths"]
 
 
 def test_resolve_paths_prefers_yaml_explicit_over_discovery(tmp_path: Path) -> None:

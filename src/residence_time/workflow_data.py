@@ -184,7 +184,8 @@ def _classify_netcdf(path: Path) -> str | None:
         var_names = set(dataset.data_vars)
         coord_names = set(dataset.coords) | set(dataset.dims)
 
-        if "tau" in var_names and {"lat", "lev"}.issubset(coord_names):
+        tau_var_candidates = {"Residence time [yrs]", "tau"}
+        if tau_var_candidates.intersection(var_names) and {"lat", "lev"}.issubset(coord_names):
             return "tau_paths"
         if {"AoA", "AoA_STD"}.issubset(var_names) and {"time", "lat", "alt"}.issubset(coord_names):
             return "sat_paths"
