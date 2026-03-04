@@ -1,0 +1,58 @@
+run:
+  run_id: supervise_example 
+  output_root: runs
+
+data:
+  # Hybrid behavior:
+  # 1) explicit CLI flags
+  # 2) explicit YAML paths below
+  # 3) autodiscovery (if enabled)
+  sat_paths: []
+  insitu_paths: []
+  model_paths: []
+  tau_path: data/tau/EMAC_residence_time.nc
+  tropopause_csv: null
+
+  use_tropopause_features: false
+  time_start: null
+  time_end: null
+  scaler: StandardScaler
+
+  autodiscover:
+    enabled: true
+    search_roots:
+      - data
+    discover_model_paths: false
+    discover_tau_path: false
+
+model:
+  hidden_dim: 64
+  hidden_layers: 3
+  disable_d_output: false
+  checkpoint_name: model_checkpoint.pth
+
+training:
+  batch_size: 256
+  val_split: 0.2
+  epochs: 300
+  learning_rate: 0.0001
+  lambda_phys_start: 1.0
+  lambda_sup_start: 1.0
+  decay_rate: 0.95
+
+time_encoding:
+  enabled: false
+  use_cyclical: false
+  use_rbf_seasonal: false
+  use_rbf_absolute: false
+  n_rbf_seasonal: 12
+  n_rbf_absolute: 24
+  gamma_seasonal: 100.0
+  gamma_absolute: 5.0
+  t_min: 1980.0
+  t_max: 2025.0
+  time_col: 2
+
+runtime:
+  device: null
+  seed: 42
