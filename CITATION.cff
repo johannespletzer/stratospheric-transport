@@ -1,18 +1,18 @@
----
-authors:
-  - given-names: Johannes
-    family-names: Pletzer
-    affiliation: 'DLR, Germany'
-    orcid: 'https://orcid.org/0000-0003-3210-3496'
+cff-version: 1.2.0
 title: stratospheric-transport
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
 type: software
-abstract: >-
-  A Python package to estimate residence time from age of air data. Based 
-  on a neural network.
+authors:
+  - given-names: Johannes
+    family-names: Pletzer
+    affiliation: 'DLR, Germany'
+    orcid: 'https://orcid.org/0000-0003-3210-3496'
 repository-code: 'https://github.com/johannespletzer/stratospheric-transport'
+abstract: >-
+  A Python package to estimate residence time from age of
+  air data. Based on a neural network.
 keywords:
   - age of air
   - residence time
@@ -24,4 +24,3 @@ keywords:
   - response model
 license: CC BY-NC-ND 4.0
 version: '0.6'
-cff-version: 1.2.0
