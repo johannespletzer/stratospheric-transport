@@ -26,6 +26,50 @@ def _forward_fill_nan_along_axis(values: np.ndarray, axis: int) -> np.ndarray:
     return np.moveaxis(out, -1, axis)
 
 
+def _infer_tropopause_time_window(X: np.ndarray) -> Optional[Tuple[float, float]]:
+    """Infer a tropopause lookup window from loaded dataset rows.
+
+    Prefer satellite and model rows (source_id in {0, 2}) and fall back to all
+    rows when none are available. Non-finite timestamps are ignored.
+    """
+    times = np.asarray(X[:, 2], dtype=float)
+    sources = np.asarray(X[:, 3], dtype=float)
+
+    finite_mask = np.isfinite(times)
+    preferred_mask = np.isin(sources, (0.0, 2.0)) & finite_mask
+    candidate_times = times[preferred_mask]
+    if candidate_times.size == 0:
+        candidate_times = times[finite_mask]
+
+    if candidate_times.size == 0:
+        return None
+
+    return float(np.min(candidate_times)), float(np.max(candidate_times))
+
+
+def _slice_tropopause_table(
+    tp_df: pd.DataFrame,
+    time_window: Tuple[float, float],
+) -> pd.DataFrame:
+    """Restrict tropopause rows to a padded interval around data times."""
+    if tp_df.empty:
+        return tp_df
+
+    start, end = time_window
+    t_min, t_max = (float(start), float(end)) if start <= end else (float(end), float(start))
+
+    tp_times = tp_df["year_frac"].to_numpy(dtype=float)
+    n_times = tp_times.size
+
+    left = int(np.searchsorted(tp_times, t_min, side="left") - 1)
+    right = int(np.searchsorted(tp_times, t_max, side="right") + 1)
+
+    left = int(np.clip(left, 0, n_times - 1))
+    right = int(np.clip(right, left + 1, n_times))
+
+    return tp_df.iloc[left:right].reset_index(drop=True)
+
+
 def load_insitu_dataset(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load balloon/aircraft (in-situ) age-of-air observations from NetCDF.
 
@@ -397,6 +441,10 @@ def extend_with_tropopause_features(
     )
     if tp_df.empty:
         raise ValueError("No tropopause features found in CSV.")
+
+    time_window = _infer_tropopause_time_window(X)
+    if time_window is not None:
+        tp_df = _slice_tropopause_table(tp_df, time_window)
 
     tp_times = tp_df["year_frac"].to_numpy(dtype=float)
     tp_values = tp_df[features].to_numpy(dtype=float)

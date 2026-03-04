@@ -74,6 +74,14 @@ Required columns:
 - `tp_WMO_sh_pol_std`
 - `tp_WMO_nh_pol_std`
 
+Lookup behavior during training:
+
+- Tropopause rows are restricted to the loaded data time window, preferring
+  satellite/model timestamps (`source_id` 0 and 2) and falling back to all
+  rows if needed.
+- One-row boundary padding is kept on both sides of the window so nearest-time
+  matching still works when timestamps lie just outside exact overlap.
+
 If `use_tropopause_features: true` and no CSV is resolved, training exits with
 an error.
 
