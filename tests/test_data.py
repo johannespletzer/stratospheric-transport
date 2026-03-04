@@ -211,6 +211,97 @@ def test_extend_with_tropopause_features_matches_reference_lookup(
     np.testing.assert_allclose(W, expected_W)
 
 
+def test_extend_with_tropopause_features_limits_to_sat_model_time_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tropopause lookup should use a reduced window based on source_id 0/2 times."""
+    df = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["1999-01-01", "2000-01-01", "2001-01-01", "2010-01-01"]),
+            "tp_WMO_tro": [1000.0, 10.0, 11.0, 9000.0],
+            "tp_WMO_sh_pol": [2000.0, 20.0, 21.0, 9001.0],
+            "tp_WMO_nh_pol": [3000.0, 30.0, 31.0, 9002.0],
+            "tp_WMO_tro_std": [0.5, 0.2, 0.4, 0.5],
+            "tp_WMO_sh_pol_std": [0.5, 0.2, 0.4, 0.5],
+            "tp_WMO_nh_pol_std": [0.5, 0.2, 0.4, 0.5],
+        }
+    )
+
+    def fake_read_csv(csv_path: str, parse_dates: Optional[list] = None) -> pd.DataFrame:
+        _ = (csv_path, parse_dates)
+        return df.copy()
+
+    monkeypatch.setattr(data_module.pd, "read_csv", fake_read_csv)
+
+    X = np.array(
+        [
+            [0.0, 20.0, 2000.2, 0.0, 2.0],   # satellite -> nearest 2000
+            [0.0, 20.0, 2000.8, 2.0, 2.0],   # model -> helps define time window
+            [0.0, 20.0, 2015.0, 1.0, 2.0],   # in-situ -> receives imputed mean
+        ]
+    )
+
+    X_ext, W = data_module.extend_with_tropopause_features(X, csv_path="dummy.csv")
+
+    expected_window_mean = np.array([10.5, 20.5, 30.5], dtype=float)
+    np.testing.assert_allclose(X_ext[0, 5:8], np.array([10.0, 20.0, 30.0], dtype=float))
+    np.testing.assert_allclose(X_ext[1, 5:8], expected_window_mean)
+    np.testing.assert_allclose(X_ext[2, 5:8], expected_window_mean)
+    assert X_ext[0, 8] == 1.0
+    assert X_ext[1, 8] == 0.0
+    assert X_ext[2, 8] == 0.0
+
+    expected_sat_weight = 1.0 / (3 * (0.2**2) + 1e-8)
+    np.testing.assert_allclose(W[0], expected_sat_weight)
+    np.testing.assert_allclose(W[1:], np.ones(2))
+
+
+def test_extend_with_tropopause_features_window_clamps_when_outside_csv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Out-of-range source windows should clamp to nearest tropopause boundaries."""
+    df = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2000-01-01", "2001-01-01", "2002-01-01"]),
+            "tp_WMO_tro": [1.0, 10.0, 100.0],
+            "tp_WMO_sh_pol": [2.0, 20.0, 200.0],
+            "tp_WMO_nh_pol": [3.0, 30.0, 300.0],
+            "tp_WMO_tro_std": [0.1, 0.2, 0.3],
+            "tp_WMO_sh_pol_std": [0.1, 0.2, 0.3],
+            "tp_WMO_nh_pol_std": [0.1, 0.2, 0.3],
+        }
+    )
+
+    def fake_read_csv(csv_path: str, parse_dates: Optional[list] = None) -> pd.DataFrame:
+        _ = (csv_path, parse_dates)
+        return df.copy()
+
+    monkeypatch.setattr(data_module.pd, "read_csv", fake_read_csv)
+
+    X_before = np.array(
+        [
+            [0.0, 20.0, 1980.0, 0.0, 2.0],   # satellite before first month
+            [0.0, 20.0, 1981.0, 2.0, 2.0],   # model defines preferred window
+        ]
+    )
+    X_after = np.array(
+        [
+            [0.0, 20.0, 2050.0, 0.0, 2.0],   # satellite after last month
+            [0.0, 20.0, 2051.0, 2.0, 2.0],   # model defines preferred window
+        ]
+    )
+
+    X_ext_before, _ = data_module.extend_with_tropopause_features(X_before, csv_path="dummy.csv")
+    X_ext_after, _ = data_module.extend_with_tropopause_features(X_after, csv_path="dummy.csv")
+
+    np.testing.assert_allclose(X_ext_before[0, 5:8], np.array([1.0, 2.0, 3.0], dtype=float))
+    np.testing.assert_allclose(X_ext_before[1, 5:8], np.array([1.0, 2.0, 3.0], dtype=float))
+    np.testing.assert_allclose(X_ext_after[0, 5:8], np.array([100.0, 200.0, 300.0], dtype=float))
+    np.testing.assert_allclose(X_ext_after[1, 5:8], np.array([100.0, 200.0, 300.0], dtype=float))
+    assert X_ext_before[0, 8] == 1.0
+    assert X_ext_after[0, 8] == 1.0
+
+
 def test_load_tau_r_uses_residence_time_default_and_handles_axis_order(tmp_path: Path) -> None:
     """Tau loader should accept EMAC-style naming and descending latitude axes."""
     lev_hpa = np.array([1.0, 10.0, 100.0], dtype=float)
