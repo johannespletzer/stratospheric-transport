@@ -43,3 +43,10 @@ make compare RUN_DIRS="runs/<run_a> runs/<run_b>" OUTPUT_DIR=reports/compare/lat
 
 - [Run Configuration](docs/run-configuration.md)
 - [Data and Outputs](docs/data-and-outputs.md)
+
+## Acknowledgements
+
+This work builds on age-of-air and tropopause datasets from:
+
+- Garny et al. 2024: ["Age of stratospheric air: observational data sets (v2)"](https://zenodo.org/records/13906743)
+- Hoffmann and Spang 2021: ["Reanalysis Tropopause Data Repository"](https://doi.org/10.26165/JUELICH-DATA/UBNGI2)
