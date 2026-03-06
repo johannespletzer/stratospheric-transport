@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import patch
 
 import matplotlib
@@ -106,6 +107,26 @@ def test_plot_field_from_data_requires_D_for_D_field() -> None:
             field="D",
             device="cpu",
         )
+
+
+def test_plot_field_from_data_writes_file(tmp_path: Path) -> None:
+    """plot_field_from_data should save a figure when save_path is provided."""
+    model = PINNModel()
+    X = np.random.rand(200, 5)
+    scaler = MinMaxScaler().fit(X)
+    output_path = tmp_path / "tau_R_field.png"
+
+    plot_field_from_data(
+        model=model,
+        X=X,
+        scaler_X=scaler,
+        field="tau_R",
+        device="cpu",
+        save_path=str(output_path),
+        show=False,
+    )
+
+    assert output_path.is_file()
 
 
 def test_plot_training_progress_runs() -> None:

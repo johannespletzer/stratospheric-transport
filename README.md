@@ -19,6 +19,7 @@ Run the canonical workflow:
 ```bash
 python scripts/workflow.py train --config configs/run.example.yaml
 python scripts/workflow.py plot --run-dir runs/<run_id>
+python scripts/workflow.py plot-field --run-dir runs/<run_id>
 python scripts/workflow.py compare --run-dirs runs/<run_a> runs/<run_b> --output-dir reports/compare/latest
 ```
 
@@ -28,6 +29,7 @@ Optional Makefile wrappers:
 make setup
 make train CONFIG=configs/run.example.yaml
 make plot RUN_DIR=runs/<run_id>
+make plot-field RUN_DIR=runs/<run_id>
 make compare RUN_DIRS="runs/<run_a> runs/<run_b>" OUTPUT_DIR=reports/compare/latest
 ```
 

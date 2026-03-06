@@ -148,6 +148,8 @@ def test_workflow_train_plot_compare_e2e(tmp_path: Path) -> None:
     _run_workflow(["plot", "--run-dir", str(run_a_dir)])
     assert (run_a_dir / "plots" / "training_losses.png").is_file()
     assert (run_a_dir / "plots" / "loss_components.png").is_file()
+    _run_workflow(["plot-field", "--run-dir", str(run_a_dir)])
+    assert (run_a_dir / "plots" / "tau_R_field.png").is_file()
 
     compare_out = tmp_path / "compare"
     _run_workflow(
@@ -341,3 +343,88 @@ def test_workflow_resume_surfaces_incompatible_architecture_error(tmp_path: Path
     output = f"{result.stdout}\n{result.stderr}"
     assert result.returncode != 0
     assert "loading state_dict" in output.lower() or "size mismatch" in output.lower()
+
+
+def test_workflow_plot_field_requires_checkpoint(tmp_path: Path) -> None:
+    """plot-field should fail with a clear message when checkpoint is missing."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    sat_path = data_dir / "satellite.nc"
+    _write_satellite_nc(sat_path)
+
+    output_root = tmp_path / "runs"
+    config = tmp_path / "run_a.yaml"
+    _write_config(config, _build_config("run_a", output_root, sat_path, seed=7, hidden_dim=12))
+    _run_workflow(["train", "--config", str(config)])
+
+    run_dir = output_root / "run_a"
+    (run_dir / "model_checkpoint.pth").unlink()
+
+    result = _run_workflow_raw(["plot-field", "--run-dir", str(run_dir)])
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "Checkpoint file not found in run directory" in output
+
+
+def test_workflow_plot_field_requires_resolved_config(tmp_path: Path) -> None:
+    """plot-field should fail with a clear message when resolved config is missing."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    sat_path = data_dir / "satellite.nc"
+    _write_satellite_nc(sat_path)
+
+    output_root = tmp_path / "runs"
+    config = tmp_path / "run_a.yaml"
+    _write_config(config, _build_config("run_a", output_root, sat_path, seed=7, hidden_dim=12))
+    _run_workflow(["train", "--config", str(config)])
+
+    run_dir = output_root / "run_a"
+    (run_dir / "resolved_config.yaml").unlink()
+
+    result = _run_workflow_raw(["plot-field", "--run-dir", str(run_dir)])
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "resolved_config.yaml not found in run directory" in output
+
+
+def test_workflow_plot_field_rejects_invalid_resolved_config(tmp_path: Path) -> None:
+    """plot-field should fail with a clear message for malformed resolved config."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    sat_path = data_dir / "satellite.nc"
+    _write_satellite_nc(sat_path)
+
+    output_root = tmp_path / "runs"
+    config = tmp_path / "run_a.yaml"
+    _write_config(config, _build_config("run_a", output_root, sat_path, seed=7, hidden_dim=12))
+    _run_workflow(["train", "--config", str(config)])
+
+    run_dir = output_root / "run_a"
+    (run_dir / "resolved_config.yaml").write_text("{invalid_yaml: [", encoding="utf-8")
+
+    result = _run_workflow_raw(["plot-field", "--run-dir", str(run_dir)])
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "Failed to parse resolved workflow config" in output
+
+
+def test_workflow_plot_field_requires_scaler_in_checkpoint(tmp_path: Path) -> None:
+    """plot-field should fail when checkpoint does not contain a stored scaler."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    sat_path = data_dir / "satellite.nc"
+    _write_satellite_nc(sat_path)
+
+    output_root = tmp_path / "runs"
+    config = tmp_path / "run_a.yaml"
+    _write_config(config, _build_config("run_a", output_root, sat_path, seed=7, hidden_dim=12))
+    _run_workflow(["train", "--config", str(config)])
+
+    run_dir = output_root / "run_a"
+    checkpoint_path = run_dir / "model_checkpoint.pth"
+    _write_checkpoint_without_scaler(checkpoint_path, hidden_dim=12, hidden_layers=2)
+
+    result = _run_workflow_raw(["plot-field", "--run-dir", str(run_dir)])
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "requires a checkpoint with a stored scaler" in output

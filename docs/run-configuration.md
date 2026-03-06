@@ -3,6 +3,10 @@
 This page documents how `scripts/workflow.py train` resolves settings from YAML
 and CLI flags.
 
+Note: `scripts/workflow.py plot-field --run-dir <run_id>` reads
+`<run_dir>/resolved_config.yaml` to reconstruct data/model settings for
+checkpoint-based field plotting.
+
 ## Configuration Model
 
 Training configuration is loaded from a YAML file (for example

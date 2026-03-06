@@ -105,6 +105,8 @@ def plot_field_from_data(
     gamma_value: Optional[float] = None,
     device: str = 'cuda',
     return_data: bool = False,
+    save_path: Optional[str] = None,
+    show: bool = True,
     use_tropopause_features: bool = USE_TROPOPAUSE_FEATURES,
     time_encoding_config: Optional[dict] = DEFAULT_TIME_ENCODING_CONFIG,
     tp_csv_path: Optional[str] = None,
@@ -142,6 +144,12 @@ def plot_field_from_data(
 
     return_data : bool, default=False
         If True, return the field grid and axis values.
+
+    save_path : str, optional
+        If set, save the plot to this file path.
+
+    show : bool, default=True
+        Whether to display the figure interactively.
 
     use_tropopause_features : bool, default=False
         Whether to include tropopause-based model inputs.
@@ -221,7 +229,12 @@ def plot_field_from_data(
     )
     plt.colorbar(contour, label=field)
     plt.tight_layout()
-    plt.show()
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
     if return_data:
         return lat_vals, alt_vals, field_grid

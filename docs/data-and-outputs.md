@@ -105,6 +105,22 @@ Produced files:
 
 You can override output location with `--output-dir`.
 
+## Plot Field Artifacts (`workflow plot-field`)
+
+Default output file:
+
+```text
+runs/<run_id>/plots/tau_R_field.png
+```
+
+When `--field D` is selected, the default becomes:
+
+```text
+runs/<run_id>/plots/D_field.png
+```
+
+You can override the output location with `--output-path`.
+
 ## Comparison Artifacts (`workflow compare`)
 
 Default output directory:

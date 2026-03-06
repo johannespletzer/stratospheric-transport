@@ -20,6 +20,7 @@ from yaml import safe_dump
 from residence_time.config import LEARNING_RATE, PHYSICS_CONSTRAINT
 from residence_time.data import load_all_data_combined, load_tau_R
 from residence_time.model import PINNModel
+from residence_time.plot import plot_field_from_data
 from residence_time.train import (
     create_train_val_loaders,
     extract_phase_and_scale,
@@ -57,6 +58,20 @@ def _resolve_path(path_str: str) -> Path:
     if not path.is_absolute():
         path = PROJECT_ROOT / path
     return path.resolve()
+
+
+def _load_resolved_run_config(run_dir: Path) -> dict[str, Any]:
+    """Load and validate a run's resolved workflow config."""
+    resolved_config_path = run_dir / "resolved_config.yaml"
+    if not resolved_config_path.is_file():
+        raise FileNotFoundError(f"resolved_config.yaml not found in run directory: {run_dir}")
+
+    try:
+        return load_workflow_config(str(resolved_config_path))
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to parse resolved workflow config: {resolved_config_path}"
+        ) from exc
 
 
 def _resolve_resume_settings(config: dict[str, Any]) -> dict[str, Any]:
@@ -528,6 +543,103 @@ def run_plot(args: argparse.Namespace) -> None:
     print(f"Wrote: {component_path}")
 
 
+def run_plot_field(args: argparse.Namespace) -> None:
+    """Generate a checkpoint-based spatial field plot from a previous run."""
+    run_dir = _resolve_path(args.run_dir)
+    config = _load_resolved_run_config(run_dir)
+
+    resolved = resolve_data_paths(config["data"], project_root=PROJECT_ROOT)
+    _print_resolved_paths(resolved)
+
+    model_cfg = config["model"]
+    data_cfg = config["data"]
+    time_cfg = _build_time_encoding_config(config)
+
+    if PHYSICS_CONSTRAINT == "harmonic" and time_cfg.get("enabled", False):
+        raise ValueError(
+            "Time encoding is not supported when PHYSICS_CONSTRAINT='harmonic'. "
+            "Disable time encoding options."
+        )
+    if PHYSICS_CONSTRAINT == "diffusivity" and model_cfg.get("disable_d_output", False):
+        raise ValueError(
+            "disable_d_output is incompatible with PHYSICS_CONSTRAINT='diffusivity'."
+        )
+
+    time_range = parse_time_range(data_cfg.get("time_start"), data_cfg.get("time_end"))
+    configured_device = args.device or config["runtime"].get("device")
+    device = configured_device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    X, _gamma, _weights = load_all_data_combined(
+        sat_paths=resolved.sat_paths or None,
+        insitu_paths=resolved.insitu_paths or None,
+        model_paths=resolved.model_paths or None,
+        time_range=time_range,
+        trop_features=bool(data_cfg.get("use_tropopause_features", False)),
+        tropopause_csv_path=resolved.tropopause_csv,
+    )
+
+    if resolved.tau_path:
+        _, valid_mask = load_tau_R(resolved.tau_path, X)
+        X = X[valid_mask]
+
+    if len(X) == 0:
+        raise ValueError("No plotting samples remain after filtering/interpolation.")
+
+    model = PINNModel(
+        input_dim=5,
+        hidden_dim=int(model_cfg["hidden_dim"]),
+        hidden_layers=int(model_cfg["hidden_layers"]),
+        include_D=not bool(model_cfg.get("disable_d_output", False)),
+        use_tropopause_features=bool(data_cfg.get("use_tropopause_features", False)),
+        time_encoding_config=time_cfg,
+    ).to(device)
+
+    checkpoint_name = str(model_cfg.get("checkpoint_name", "model_checkpoint.pth"))
+    checkpoint_path = run_dir / checkpoint_name
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint file not found in run directory: {checkpoint_path}")
+
+    scaler_x = load_checkpoint(
+        model,
+        checkpoint_path=str(checkpoint_path),
+        device=device,
+        return_scaler=True,
+    )
+    if scaler_x is None:
+        raise ValueError(
+            "Plot-field requires a checkpoint with a stored scaler, but none was found."
+        )
+
+    grid_res = (int(args.grid_res[0]), int(args.grid_res[1]))
+    if grid_res[0] <= 0 or grid_res[1] <= 0:
+        raise ValueError("--grid-res values must be positive integers.")
+
+    if args.output_path:
+        output_path = _resolve_path(args.output_path)
+    else:
+        output_path = run_dir / "plots" / f"{args.field}_field.png"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plot_field_from_data(
+        model=model,
+        X=X,
+        scaler_X=scaler_x,
+        field=str(args.field),
+        grid_res=grid_res,
+        time_value=args.time_value,
+        source_value=args.source_value,
+        gamma_value=args.gamma_value,
+        device=device,
+        save_path=str(output_path),
+        show=bool(args.show),
+        use_tropopause_features=bool(data_cfg.get("use_tropopause_features", False)),
+        time_encoding_config=time_cfg,
+        tp_csv_path=resolved.tropopause_csv,
+    )
+    print(f"Wrote: {output_path}")
+
+
 def run_compare(args: argparse.Namespace) -> None:
     """Compare multiple runs and write leaderboard + overlay plot."""
     run_dirs = [_resolve_path(path_str) for path_str in args.run_dirs]
@@ -594,7 +706,7 @@ def run_compare(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build top-level workflow CLI parser."""
-    parser = argparse.ArgumentParser(description="Workflow commands for train/plot/compare.")
+    parser = argparse.ArgumentParser(description="Workflow commands for train/plot/plot-field/compare.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     train_parser = subparsers.add_parser("train", help="Run training from YAML config.")
@@ -677,6 +789,34 @@ def build_parser() -> argparse.ArgumentParser:
     plot_parser.add_argument("--run-dir", required=True, help="Run directory containing history.csv.")
     plot_parser.add_argument("--output-dir", default=None, help="Optional output directory for plots.")
     plot_parser.set_defaults(func=run_plot)
+
+    plot_field_parser = subparsers.add_parser(
+        "plot-field",
+        help="Generate a checkpoint-based residence-time field plot.",
+    )
+    plot_field_parser.add_argument("--run-dir", required=True, help="Run directory containing model artifacts.")
+    plot_field_parser.add_argument("--output-path", default=None, help="Optional output path for the field plot.")
+    plot_field_parser.add_argument("--field", choices=["tau_R", "D"], default="tau_R")
+    plot_field_parser.add_argument(
+        "--grid-res",
+        nargs=2,
+        type=int,
+        metavar=("N_LAT", "N_ALT"),
+        default=[64, 40],
+        help="Grid resolution in latitude and altitude dimensions.",
+    )
+    plot_field_parser.add_argument("--time-value", type=float, default=None, help="Optional fixed time value.")
+    plot_field_parser.add_argument("--source-value", type=float, default=None, help="Optional fixed source ID.")
+    plot_field_parser.add_argument("--gamma-value", type=float, default=None, help="Optional fixed Gamma value.")
+    plot_field_parser.add_argument("--device", choices=["cpu", "cuda"], default=None)
+    plot_field_parser.add_argument("--show", dest="show", action="store_true", help="Show plot interactively.")
+    plot_field_parser.add_argument(
+        "--no-show",
+        dest="show",
+        action="store_false",
+        help="Do not show plot interactively (default).",
+    )
+    plot_field_parser.set_defaults(func=run_plot_field, show=False)
 
     compare_parser = subparsers.add_parser("compare", help="Compare multiple run directories.")
     compare_parser.add_argument("--run-dirs", nargs="+", required=True, help="Run directories to compare.")
