@@ -14,7 +14,7 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Run the canonical workflow:
+Run the workflow:
 
 ```bash
 python scripts/workflow.py train --config configs/run.example.yaml
