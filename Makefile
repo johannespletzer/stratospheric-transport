@@ -1,6 +1,12 @@
 PYTHON ?= python
 RESUME_OPT_FLAG := $(if $(filter true,$(RESUME_LOAD_OPT)),--resume-load-optimizer,$(if $(filter false,$(RESUME_LOAD_OPT)),--no-resume-load-optimizer,))
 RESUME_SCALER_FLAG := $(if $(filter true,$(RESUME_LOAD_SCALER)),--resume-load-scaler,$(if $(filter false,$(RESUME_LOAD_SCALER)),--no-resume-load-scaler,))
+TRAIN_ARGS = $(strip \
+	$(if $(RESUME_FROM),--resume-from "$(RESUME_FROM)") \
+	$(if $(RESUME_CONFIG),--resume-config "$(RESUME_CONFIG)") \
+	$(RESUME_OPT_FLAG) \
+	$(RESUME_SCALER_FLAG) \
+)
 PLOT_FIELD_ARGS = $(strip \
 	$(if $(OUTPUT_PATH),--output-path "$(OUTPUT_PATH)") \
 	$(if $(FIELD),--field "$(FIELD)") \
@@ -19,11 +25,7 @@ setup:
 
 train:
 	@test -n "$(CONFIG)" || (echo "Usage: make train CONFIG=configs/run.example.yaml" && exit 1)
-	$(PYTHON) scripts/workflow.py train --config "$(CONFIG)" \
-		$(if $(RESUME_FROM),--resume-from "$(RESUME_FROM)",) \
-		$(if $(RESUME_CONFIG),--resume-config "$(RESUME_CONFIG)",) \
-		$(RESUME_OPT_FLAG) \
-		$(RESUME_SCALER_FLAG)
+	$(PYTHON) scripts/workflow.py train --config "$(CONFIG)" $(TRAIN_ARGS)
 
 plot:
 	@test -n "$(RUN_DIR)" || (echo "Usage: make plot RUN_DIR=runs/<run_id>" && exit 1)
