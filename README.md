@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18868143.svg)](https://doi.org/10.5281/zenodo.18868143)
+
 # Modeling of Stratospheric Transport
 
 This repository provides a Physics-Informed Neural Network (PINN) workflow for
